@@ -21,6 +21,8 @@ data/
 *.xdf
 *.fif
 *.npz
+# Simulated recordings made by examples/make_examples.sh are not about real people.
+!examples/*.npz
 
 # Trained models: rebuild with `eegmove pretrain`, or share over Discord or a flash drive.
 artifacts/

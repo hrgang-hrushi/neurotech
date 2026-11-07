@@ -1,0 +1,412 @@
+{
+  "text": "HELLO WORLD",
+  "morse": ".... . .-.. .-.. --- / .-- --- .-. .-.. -..",
+  "source": {
+    "file": "examples/sim_clench_hello.npz",
+    "sfreq": 500.0,
+    "duration_s": 42.898,
+    "channels_used": [
+      "T7",
+      "T8",
+      "M1",
+      "M2"
+    ]
+  },
+  "quality": {
+    "separability": 0.93,
+    "n_key_downs": 32,
+    "fraction_time_active": 0.441,
+    "warnings": []
+  },
+  "thresholds": {
+    "lo": 1.28329,
+    "hi": 1.59792,
+    "split": 1.43884,
+    "rest_level": 0.81666,
+    "active_level": 2.07516,
+    "separability": 0.93039
+  },
+  "timing": {
+    "unit_s": 0.3027,
+    "unit_source": "estimated",
+    "bias_s": 0.0401,
+    "dash_threshold_s": 0.6456,
+    "letter_gap_s": 0.5653,
+    "word_gap_s": 1.4734
+  },
+  "letters": [
+    {
+      "code": "....",
+      "char": "H",
+      "status": "ok",
+      "t_start": 6.0600000000000005,
+      "t_end": 8.24
+    },
+    {
+      "code": ".",
+      "char": "E",
+      "status": "ok",
+      "t_start": 9.14,
+      "t_end": 9.52
+    },
+    {
+      "code": ".-..",
+      "char": "L",
+      "status": "ok",
+      "t_start": 10.4,
+      "t_end": 13.1
+    },
+    {
+      "code": ".-..",
+      "char": "L",
+      "status": "ok",
+      "t_start": 13.92,
+      "t_end": 16.64
+    },
+    {
+      "code": "---",
+      "char": "O",
+      "status": "ok",
+      "t_start": 17.3,
+      "t_end": 20.900000000000002
+    },
+    {
+      "code": ".--",
+      "char": "W",
+      "status": "ok",
+      "t_start": 22.72,
+      "t_end": 25.560000000000002
+    },
+    {
+      "code": "---",
+      "char": "O",
+      "status": "ok",
+      "t_start": 26.240000000000002,
+      "t_end": 29.46
+    },
+    {
+      "code": ".-.",
+      "char": "R",
+      "status": "ok",
+      "t_start": 30.22,
+      "t_end": 32.38
+    },
+    {
+      "code": ".-..",
+      "char": "L",
+      "status": "ok",
+      "t_start": 33.34,
+      "t_end": 36.14
+    },
+    {
+      "code": "-..",
+      "char": "D",
+      "status": "ok",
+      "t_start": 37.02,
+      "t_end": 39.0
+    }
+  ],
+  "elements": [
+    {
+      "t_on": 6.0600000000000005,
+      "t_off": 6.4,
+      "symbol": ".",
+      "gap_before": null,
+      "boundary": "start",
+      "duration": 0.34
+    },
+    {
+      "t_on": 6.7,
+      "t_off": 7.04,
+      "symbol": ".",
+      "gap_before": 0.2999999999999998,
+      "boundary": "intra",
+      "duration": 0.34
+    },
+    {
+      "t_on": 7.26,
+      "t_off": 7.640000000000001,
+      "symbol": ".",
+      "gap_before": 0.21999999999999975,
+      "boundary": "intra",
+      "duration": 0.38
+    },
+    {
+      "t_on": 7.9,
+      "t_off": 8.24,
+      "symbol": ".",
+      "gap_before": 0.2599999999999998,
+      "boundary": "intra",
+      "duration": 0.34
+    },
+    {
+      "t_on": 9.14,
+      "t_off": 9.52,
+      "symbol": ".",
+      "gap_before": 0.9000000000000004,
+      "boundary": "letter",
+      "duration": 0.38
+    },
+    {
+      "t_on": 10.4,
+      "t_off": 10.76,
+      "symbol": ".",
+      "gap_before": 0.8800000000000008,
+      "boundary": "letter",
+      "duration": 0.36
+    },
+    {
+      "t_on": 11.02,
+      "t_off": 11.9,
+      "symbol": "-",
+      "gap_before": 0.2599999999999998,
+      "boundary": "intra",
+      "duration": 0.88
+    },
+    {
+      "t_on": 12.14,
+      "t_off": 12.48,
+      "symbol": ".",
+      "gap_before": 0.2400000000000002,
+      "boundary": "intra",
+      "duration": 0.34
+    },
+    {
+      "t_on": 12.76,
+      "t_off": 13.1,
+      "symbol": ".",
+      "gap_before": 0.27999999999999936,
+      "boundary": "intra",
+      "duration": 0.34
+    },
+    {
+      "t_on": 13.92,
+      "t_off": 14.24,
+      "symbol": ".",
+      "gap_before": 0.8200000000000003,
+      "boundary": "letter",
+      "duration": 0.32
+    },
+    {
+      "t_on": 14.48,
+      "t_off": 15.42,
+      "symbol": "-",
+      "gap_before": 0.2400000000000002,
+      "boundary": "intra",
+      "duration": 0.94
+    },
+    {
+      "t_on": 15.700000000000001,
+      "t_off": 16.080000000000002,
+      "symbol": ".",
+      "gap_before": 0.28000000000000114,
+      "boundary": "intra",
+      "duration": 0.38
+    },
+    {
+      "t_on": 16.38,
+      "t_off": 16.64,
+      "symbol": ".",
+      "gap_before": 0.29999999999999716,
+      "boundary": "intra",
+      "duration": 0.26
+    },
+    {
+      "t_on": 17.3,
+      "t_off": 18.22,
+      "symbol": "-",
+      "gap_before": 0.6600000000000001,
+      "boundary": "letter",
+      "duration": 0.92
+    },
+    {
+      "t_on": 18.48,
+      "t_off": 19.44,
+      "symbol": "-",
+      "gap_before": 0.26000000000000156,
+      "boundary": "intra",
+      "duration": 0.96
+    },
+    {
+      "t_on": 19.72,
+      "t_off": 20.900000000000002,
+      "symbol": "-",
+      "gap_before": 0.2799999999999976,
+      "boundary": "intra",
+      "duration": 1.18
+    },
+    {
+      "t_on": 22.72,
+      "t_off": 23.02,
+      "symbol": ".",
+      "gap_before": 1.8199999999999967,
+      "boundary": "word",
+      "duration": 0.3
+    },
+    {
+      "t_on": 23.36,
+      "t_off": 24.400000000000002,
+      "symbol": "-",
+      "gap_before": 0.33999999999999986,
+      "boundary": "intra",
+      "duration": 1.04
+    },
+    {
+      "t_on": 24.66,
+      "t_off": 25.560000000000002,
+      "symbol": "-",
+      "gap_before": 0.259999999999998,
+      "boundary": "intra",
+      "duration": 0.9
+    },
+    {
+      "t_on": 26.240000000000002,
+      "t_off": 27.22,
+      "symbol": "-",
+      "gap_before": 0.6799999999999997,
+      "boundary": "letter",
+      "duration": 0.98
+    },
+    {
+      "t_on": 27.46,
+      "t_off": 28.3,
+      "symbol": "-",
+      "gap_before": 0.240000000000002,
+      "boundary": "intra",
+      "duration": 0.84
+    },
+    {
+      "t_on": 28.52,
+      "t_off": 29.46,
+      "symbol": "-",
+      "gap_before": 0.21999999999999886,
+      "boundary": "intra",
+      "duration": 0.94
+    },
+    {
+      "t_on": 30.22,
+      "t_off": 30.560000000000002,
+      "symbol": ".",
+      "gap_before": 0.759999999999998,
+      "boundary": "letter",
+      "duration": 0.34
+    },
+    {
+      "t_on": 30.82,
+      "t_off": 31.78,
+      "symbol": "-",
+      "gap_before": 0.259999999999998,
+      "boundary": "intra",
+      "duration": 0.96
+    },
+    {
+      "t_on": 32.0,
+      "t_off": 32.38,
+      "symbol": ".",
+      "gap_before": 0.21999999999999886,
+      "boundary": "intra",
+      "duration": 0.38
+    },
+    {
+      "t_on": 33.34,
+      "t_off": 33.7,
+      "symbol": ".",
+      "gap_before": 0.9600000000000009,
+      "boundary": "letter",
+      "duration": 0.36
+    },
+    {
+      "t_on": 33.92,
+      "t_off": 34.94,
+      "symbol": "-",
+      "gap_before": 0.21999999999999886,
+      "boundary": "intra",
+      "duration": 1.02
+    },
+    {
+      "t_on": 35.2,
+      "t_off": 35.54,
+      "symbol": ".",
+      "gap_before": 0.2600000000000051,
+      "boundary": "intra",
+      "duration": 0.34
+    },
+    {
+      "t_on": 35.78,
+      "t_off": 36.14,
+      "symbol": ".",
+      "gap_before": 0.240000000000002,
+      "boundary": "intra",
+      "duration": 0.36
+    },
+    {
+      "t_on": 37.02,
+      "t_off": 37.84,
+      "symbol": "-",
+      "gap_before": 0.8800000000000026,
+      "boundary": "letter",
+      "duration": 0.82
+    },
+    {
+      "t_on": 38.06,
+      "t_off": 38.42,
+      "symbol": ".",
+      "gap_before": 0.21999999999999886,
+      "boundary": "intra",
+      "duration": 0.36
+    },
+    {
+      "t_on": 38.68,
+      "t_off": 39.0,
+      "symbol": ".",
+      "gap_before": 0.259999999999998,
+      "boundary": "intra",
+      "duration": 0.32
+    }
+  ],
+  "config": {
+    "feature": {
+      "channels": [
+        "T7",
+        "T8",
+        "FT7",
+        "FT8",
+        "TP7",
+        "TP8",
+        "M1",
+        "M2"
+      ],
+      "band": [
+        30.0,
+        95.0
+      ],
+      "direction": "increase",
+      "reference": "car",
+      "line_freq": 60.0,
+      "smooth_s": 0.1,
+      "env_rate": 50.0,
+      "measure": "power",
+      "baseline_s": 10.0,
+      "baseline_pct": 25.0
+    },
+    "detect": {
+      "hysteresis": 0.25,
+      "min_on_s": 0.08,
+      "min_off_s": 0.08,
+      "edge_s": 0.5,
+      "lo": null,
+      "hi": null,
+      "rest_level": null
+    },
+    "timing": {
+      "unit_s": null,
+      "default_unit_s": 0.3,
+      "bias_s": 0.0,
+      "min_dot_ratio": 0.4,
+      "dash_ratio": 2.0,
+      "letter_gap_ratio": 2.0,
+      "word_gap_ratio": 5.0
+    },
+    "preset": "clench"
+  }
+}

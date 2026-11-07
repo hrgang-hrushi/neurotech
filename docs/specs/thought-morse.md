@@ -264,4 +264,6 @@ requires left vs right to be a stated reason. No fix rounds were needed.
 - Round 2: Overall Fail on test coverage alone, because the headset run hasn't happened. Every other
   dimension is Acceptable or better, with Review compliance Excellent for the NaN fix. The audit file
   now holds this round.
+- After merging the team's `eeg_morse` package, this change's Morse tests live in
+  `tests/test_morse_typing.py`, because `tests/test_morse.py` belongs to `eeg_morse`.
 - **Pending the owner:** the headset acceptance run of record, calibrate and check. It can't run here.
