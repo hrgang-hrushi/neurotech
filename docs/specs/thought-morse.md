@@ -213,8 +213,19 @@ Design decisions made after the freeze, within its scope. The plan file refines 
 
 ## Test break check
 
-To be filled in post-commit.
+Break check: `test_noise_only_recording_gets_no_go` vs `src/eegmove/verdict.py:judge` (left vs right bar
+lowered by 0.5, so it can never fail on realistic scores) → CAUGHT. Chosen because it guards the owner's
+risk directly. The model still reached NO-GO on the three-class score, and the test failed because it
+requires left vs right to be a stated reason. No fix rounds were needed.
 
 ## Results
 
-To be filled in post-commit.
+- `uv run pytest`: 177 passed, 0 skipped. `test_real_imagined_physionet_runs_through_gate` ran on local
+  imagined data.
+- Smoke run on a replayed stream, with a real Tk window and real LSL: `record`, `calibrate`, `check`, `live`
+  and `type --simulate` all ran. `check` returned NO-GO, as it should on replay.
+- A pre-existing bug surfaced in that run: `eegmove replay` crashed on start because `--run` shadowed the
+  command. Fixed, with `test_replay_command_runs`.
+- Nothing has run on the real headset, so real accuracy is unmeasured.
+
+Claude critique and Codex audit: to be filled in.
