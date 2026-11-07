@@ -1,0 +1,7 @@
+# Only needed if `eegmove live` cannot find the stream on the ANT router.
+#
+# 1. Copy this file to `lsl_api.cfg` in the folder you run eegmove from.
+# 2. Replace the address with the ANT laptop's IP on that network (ask the ANT team).
+# 3. Run again. LSL now asks that machine directly instead of relying on multicast.
+[lab]
+KnownPeers = {192.168.1.100}

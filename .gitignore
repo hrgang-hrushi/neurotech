@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ipynb_checkpoints/
+*.egg-info/
+dist/
+
+# This repo is public. Raw EEG is data about real people, so it never goes in git.
+# That covers PhysioNet downloads, team recordings, and every eego export format.
+data/
+*.cnt
+*.evt
+*.edf
+*.bdf
+*.vhdr
+*.vmrk
+*.eeg
+*.asc
+*.xdf
+*.fif
+
+# Trained models: rebuild with `eegmove pretrain`, or share over Discord or a flash drive.
+artifacts/
+
+# Machine-specific LSL settings (contains the ANT laptop IP)
+lsl_api.cfg
+
+# macOS
+.DS_Store
