@@ -96,15 +96,19 @@ def _load_physionet_subject(subject: int, runs: dict[int, str], channels: list[s
     return np.concatenate(xs), np.concatenate(ys), np.concatenate(trials)
 
 
+def _cache_key(channels: list[str], classes: list[str], cfg: SignalConfig, runs: dict) -> str:
+    return hashlib.sha1(json.dumps([channels, classes, cfg.to_dict(), sorted(runs)],
+                                   sort_keys=True).encode()).hexdigest()[:10]
+
+
 def load_physionet(subjects: list[int], channels: list[str], classes: list[str],
-                   cfg: SignalConfig, include_imagined: bool = False) -> Windows:
+                   cfg: SignalConfig, include_imagined: bool = False,
+                   imagined_only: bool = False) -> Windows:
     """Load subjects into windows, caching each one because EDF parsing is the slow part."""
-    runs = dict(EXECUTED_RUNS)
+    runs = dict(IMAGINED_RUNS) if imagined_only else dict(EXECUTED_RUNS)
     if include_imagined:
         runs |= IMAGINED_RUNS
-    key = hashlib.sha1(json.dumps([channels, classes, cfg.to_dict(), sorted(runs)],
-                                  sort_keys=True).encode()).hexdigest()[:10]
-    cache = DATA_DIR / "cache" / key
+    cache = DATA_DIR / "cache" / _cache_key(channels, classes, cfg, runs)
     cache.mkdir(parents=True, exist_ok=True)
 
     Xs, ys, trials, owners = [], [], [], []
@@ -172,6 +176,16 @@ def shared_channels(labels: list[str], available: list[str]) -> tuple[list[str],
     return shared, [c for c in labels if normalize_label(c) not in known]
 
 
+def recording_movement(path: Path, schedule: Path | None = None) -> str:
+    """imagined, real, or unknown for recordings made before modes existed."""
+    if path.suffix == ".npz":
+        saved = np.load(path, allow_pickle=False)
+        return str(saved["mode"]) if "mode" in saved.files else "unknown"
+    if schedule is not None:
+        return str(json.loads(schedule.read_text()).get("mode", "unknown"))
+    return "unknown"
+
+
 def _select_channels(signal: np.ndarray, labels: list[str], channels: list[str]) -> np.ndarray:
     lookup = {normalize_label(name): i for i, name in enumerate(labels)}
     missing = [c for c in channels if normalize_label(c) not in lookup]
@@ -192,10 +206,12 @@ def load_recording(path: Path, channels: list[str], classes: list[str], cfg: Sig
         signal, sfreq, labels = saved["eeg"], float(saved["sfreq"]), [str(c) for c in saved["channels"]]
         # Convert cue times to sample positions using the timestamps. If the network drops
         # samples, position and time disagree, and trusting time would shift every label.
+        # Cue ends need the same mapping, or a drop inside a cue labels post-cue data.
         elapsed = saved["timestamps"] - saved["timestamps"][0]
-        positions = np.searchsorted(elapsed, saved["cue_onset_s"]) / sfreq
-        events = [(float(t), float(d), str(n)) for t, d, n in
-                  zip(positions, saved["cue_duration_s"], saved["cue_label"])]
+        starts = np.searchsorted(elapsed, saved["cue_onset_s"]) / sfreq
+        ends = np.searchsorted(elapsed, saved["cue_onset_s"] + saved["cue_duration_s"]) / sfreq
+        events = [(float(t), float(e - t), str(n)) for t, e, n in
+                  zip(starts, ends, saved["cue_label"])]
     else:
         if schedule is None:
             raise ValueError("eego exports need --schedule with the cue log from the session.")

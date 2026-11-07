@@ -13,6 +13,8 @@ from sklearn.model_selection import StratifiedGroupKFold
 
 from .config import ARTIFACT_DIR, SignalConfig
 from .datasets import Windows, load_physionet, load_recording
+from torch import nn
+
 from .models import (SessionModel, ShallowNet, TrainConfig, fit_net, flip_maps, make_riemann,
                      net_probs)
 from .preprocess import apply_whitening, whitening_matrix
@@ -65,7 +67,9 @@ def pretrain(subjects: list[int], heldout: list[int], channels: list[str], class
     results = {}
     if heldout:
         # A brand-new person: no labelled calibration, only a short resting baseline.
-        test = align_by_subject(load_physionet(heldout, channels, classes, cfg),
+        # With --imagined this scores imagined runs alone, since real runs would flatter it.
+        test = align_by_subject(load_physionet(heldout, channels, classes, cfg,
+                                               imagined_only=include_imagined),
                                 limit=BASELINE_WINDOWS)
         results = score(test.y, net_probs(net, test.X), classes)
         print(f"Held-out new-person score, no calibration: {results}")
@@ -79,11 +83,30 @@ def pretrain(subjects: list[int], heldout: list[int], channels: list[str], class
     return path
 
 
+def left_right_score(y_true: np.ndarray, probs: np.ndarray, classes: list[str]) -> float | None:
+    """Left vs right on their own windows, deciding only between those two outputs."""
+    if "left" not in classes or "right" not in classes:
+        return None
+    left, right = classes.index("left"), classes.index("right")
+    mask = np.isin(y_true, [left, right])
+    if not mask.any():
+        return None
+    picked = np.where(probs[mask, left] >= probs[mask, right], left, right)
+    return float(balanced_accuracy_score(y_true[mask], picked))
+
+
 def score(y_true: np.ndarray, probs: np.ndarray, classes: list[str]) -> dict:
+    """Rounded figures for people, raw ones for the go/no-go rule.
+
+    The rule must use the raw values: 0.8496 rounds to 0.85 and would pass an 85% bar.
+    """
     pred = probs.argmax(axis=1)
-    return {"accuracy": round(float(accuracy_score(y_true, pred)), 3),
-            "balanced_accuracy": round(float(balanced_accuracy_score(y_true, pred)), 3),
-            "chance": round(1 / len(classes), 3), "n": int(len(y_true))}
+    accuracy = float(accuracy_score(y_true, pred))
+    balanced = float(balanced_accuracy_score(y_true, pred))
+    return {"accuracy": round(accuracy, 3), "balanced_accuracy": round(balanced, 3),
+            "chance": round(1 / len(classes), 3), "n": int(len(y_true)),
+            "accuracy_raw": accuracy, "balanced_raw": balanced,
+            "left_right": left_right_score(y_true, probs, classes)}
 
 
 def load_pretrained(path: Path) -> tuple[ShallowNet, dict]:
@@ -101,14 +124,35 @@ def _finetune(path: Path | None, data: Windows, cfg: SignalConfig) -> ShallowNet
         net = ShallowNet(len(data.channels), cfg.n_times, len(data.classes))
         return fit_net(net, data.X, data.y, TrainConfig(epochs=60, batch_size=32, flip=flip,
                                                        flip_labels=flip_labels))
-    net, _ = load_pretrained(path)
+    net, saved = load_pretrained(path)
+    if saved["classes"] != data.classes:
+        # The head is refit below anyway, so a different class set only needs a new one.
+        net.head = nn.Linear(net.head.in_features, len(data.classes))
     fit_net(net, data.X, data.y, TrainConfig(epochs=30, batch_size=32, lr=1e-3, head_only=True,
                                              flip=flip, flip_labels=flip_labels))
     return fit_net(net, data.X, data.y, TrainConfig(epochs=20, batch_size=32, lr=1e-4, flip=flip,
                                                     flip_labels=flip_labels))
 
 
-def evaluate_session(data: Windows, cfg: SignalConfig, pretrained: Path | None, folds: int = 4):
+def cue_folds(data: Windows, folds: int = 4) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Split by cue so that every training side holds every class, or stop with a reason."""
+    counts = {name: len(np.unique(data.trial[data.y == i])) for i, name in enumerate(data.classes)}
+    thin = [f"{name} ({n})" for name, n in counts.items() if n < 2]
+    if thin:
+        raise ValueError(f"Too few usable cues to score this recording: {', '.join(thin)}. "
+                         "Each class needs at least 2.")
+    n_splits = min(folds, *counts.values())
+    wanted = set(range(len(data.classes)))
+    for seed in range(10):
+        splitter = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+        split = list(splitter.split(data.X, data.y, data.trial))
+        if all(set(data.y[train].tolist()) == wanted for train, _ in split):
+            return split
+    raise ValueError("Couldn't split the cues so that every fold trains on every class.")
+
+
+def evaluate_session(data: Windows, cfg: SignalConfig, pretrained: Path | None, folds: int = 4,
+                     use_net: bool = True):
     """Score each decoder on cues it never saw.
 
     Windows overlap, so splitting them at random would leak the test set into training
@@ -116,22 +160,23 @@ def evaluate_session(data: Windows, cfg: SignalConfig, pretrained: Path | None, 
     stratifying keeps every class in every fold, even in a short recording. This is still
     a same-session score, so expect live performance after refitting the net to be lower.
     """
-    smallest = min(len(np.unique(data.trial[data.y == c])) for c in np.unique(data.y))
-    splitter = StratifiedGroupKFold(n_splits=min(folds, smallest), shuffle=True, random_state=0)
-    probs = {"riemann": np.zeros((len(data), len(data.classes))),
-             "net": np.zeros((len(data), len(data.classes)))}
-    for train_idx, test_idx in splitter.split(data.X, data.y, data.trial):
+    probs = {"riemann": np.zeros((len(data), len(data.classes)))}
+    if use_net:
+        probs["net"] = np.zeros((len(data), len(data.classes)))
+    for train_idx, test_idx in cue_folds(data, folds):
         fold = data.select(np.isin(np.arange(len(data)), train_idx))
         probs["riemann"][test_idx] = make_riemann().fit(fold.X.astype(np.float64),
                                                         fold.y).predict_proba(
             data.X[test_idx].astype(np.float64))
-        probs["net"][test_idx] = net_probs(_finetune(pretrained, fold, cfg), data.X[test_idx])
-    probs["ensemble"] = (probs["riemann"] + probs["net"]) / 2
+        if use_net:
+            probs["net"][test_idx] = net_probs(_finetune(pretrained, fold, cfg), data.X[test_idx])
+    if use_net:
+        probs["ensemble"] = (probs["riemann"] + probs["net"]) / 2
     return {name: score(data.y, p, data.classes) for name, p in probs.items()}
 
 
 def calibrate(recording: Path, pretrained: Path | None, channels: list[str], classes: list[str],
-              cfg: SignalConfig, schedule: Path | None, out: Path) -> dict:
+              cfg: SignalConfig, schedule: Path | None, out: Path, use_net: bool = True) -> dict:
     data, baseline = load_recording(recording, channels, classes, cfg, schedule)
     counts = dict(zip(classes, np.bincount(data.y, minlength=len(classes)).tolist()))
     print(f"{len(data)} windows from {len(np.unique(data.trial))} cues. Windows per class: {counts}")
@@ -139,15 +184,16 @@ def calibrate(recording: Path, pretrained: Path | None, channels: list[str], cla
     aligned = Windows(apply_whitening(data.X, whitening), data.y, data.trial, data.subject,
                       data.channels, data.classes)
 
-    results = evaluate_session(aligned, cfg, pretrained)
+    results = evaluate_session(aligned, cfg, pretrained, use_net=use_net)
     for name, result in results.items():
-        print(f"  {name:9s} {result}")
+        shown = {k: v for k, v in result.items() if not k.endswith("_raw")}
+        print(f"  {name:9s} {shown}")
     best = max(results, key=lambda name: results[name]["balanced_accuracy"])
     print(f"Using: {best}")
 
     riemann = make_riemann().fit(aligned.X.astype(np.float64), aligned.y)
-    net = _finetune(pretrained, aligned, cfg)
-    model = SessionModel(channels, classes, cfg, whitening, net.cpu(), riemann, best)
+    net = _finetune(pretrained, aligned, cfg).cpu() if use_net else None
+    model = SessionModel(channels, classes, cfg, whitening, net, riemann, best)
     out.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, out)
     print(f"Saved {out}")

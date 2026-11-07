@@ -22,7 +22,7 @@ ASSUMED_MONTAGE: tuple[str, ...] = (
     "P3", "Pz", "P4", "POz",
 )
 
-DEFAULT_CLASSES: tuple[str, ...] = ("rest", "left", "right", "feet")
+DEFAULT_CLASSES: tuple[str, ...] = ("rest", "left", "right")
 
 
 @dataclass(frozen=True)

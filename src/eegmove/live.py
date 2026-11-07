@@ -49,31 +49,58 @@ class Debouncer:
     Probabilities are smoothed, a class must stay on top for `dwell` updates, and a
     refractory period then stops one movement firing twice. This trades a little latency
     for an app that doesn't flicker, which matters more in a live demo.
+
+    A new symbol can only fire from idle, so a rebound straight after a movement can't fire
+    as the opposite symbol. `rest_dwell` is how long rest must hold to re-arm, and a low
+    confidence dip pauses that count. `release_after` frees a state that nothing confirms,
+    so one uncertain stretch can't block every later symbol.
     """
 
     def __init__(self, classes: list[str], alpha: float = 0.4, threshold: float = 0.6,
-                 dwell: int = 3, refractory: int = 6, idle: str = "rest"):
+                 dwell: int = 3, refractory: int = 6, idle: str = "rest",
+                 rest_dwell: int | None = None, release_after: int | None = None):
         self.classes, self.alpha, self.threshold = classes, alpha, threshold
         self.dwell, self.refractory, self.idle = dwell, refractory, idle
+        self.rest_dwell = dwell if rest_dwell is None else rest_dwell
+        self.release_after = release_after
         self.smooth = np.full(len(classes), 1 / len(classes))
-        self.candidate, self.streak, self.cooldown = None, 0, 0
+        self.candidate, self.streak, self.cooldown, self.unconfirmed = None, 0, 0, 0
         self.state = idle if idle in classes else classes[0]
+        self.rest_top = False  # rest leads the smoothed probabilities, however narrowly
 
     def update(self, probs: np.ndarray) -> tuple[str, str | None]:
         self.smooth = self.alpha * probs + (1 - self.alpha) * self.smooth
         top = self.classes[int(self.smooth.argmax())]
         confident = self.smooth.max() >= self.threshold
-        self.streak = self.streak + 1 if (top == self.candidate and confident) else int(confident)
-        self.candidate = top if confident else None
+        self.rest_top = top == self.idle
         self.cooldown = max(0, self.cooldown - 1)
+        if confident:
+            self.streak = self.streak + 1 if top == self.candidate else 1
+            self.candidate = top
+        elif self.candidate != self.idle:
+            self.candidate, self.streak = None, 0
+
         event = None
-        if self.candidate is not None and self.streak >= self.dwell:
-            if self.candidate != self.state:
-                self.state = self.candidate
-                if self.state != self.idle and self.cooldown == 0:
-                    event = self.state
-                    self.cooldown = self.refractory
+        if self.candidate == self.idle:
+            if self.streak >= self.rest_dwell:
+                self.state = self.idle
+        elif self.candidate is not None and self.streak >= self.dwell:
+            if self.state == self.idle and self.cooldown == 0:
+                self.state = event = self.candidate
+                self.cooldown = self.refractory
+
+        if self.state == self.idle:
+            self.unconfirmed = 0
+        else:
+            self.unconfirmed = 0 if confident and top == self.state else self.unconfirmed + 1
+            if self.release_after is not None and self.unconfirmed >= self.release_after:
+                self.state, self.candidate, self.streak = self.idle, None, 0
+                self.unconfirmed = 0
         return self.state, event
+
+    def hold(self) -> None:
+        """Skip an update because its window was rejected: nothing may fire from it."""
+        self.candidate, self.streak, self.rest_top = None, 0, False
 
 
 def run_live(model_path: Path, host: str = "127.0.0.1", port: int = 9999, stream: str | None = None,

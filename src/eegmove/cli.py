@@ -126,9 +126,14 @@ def cmd_replay(args) -> int:
 def cmd_record(args) -> int:
     from .record import run_session
 
-    run_session(Path(args.out), _classes(args.classes), args.per_class, args.blocks, args.seed,
-                use_lsl=not args.no_lsl, stream=args.stream, baseline_s=args.baseline,
-                fullscreen=not args.windowed, autostart=args.autostart)
+    out = Path(args.out) if args.out else DATA_DIR / "recordings" / args.mode
+    try:
+        run_session(out, _classes(args.classes), args.per_class, args.blocks, args.seed,
+                    use_lsl=not args.no_lsl, stream=args.stream, baseline_s=args.baseline,
+                    fullscreen=not args.windowed, autostart=args.autostart, movement=args.mode)
+    except FileExistsError as error:
+        print(f"ERROR: {error}")
+        return 2
     return 0
 
 
@@ -143,7 +148,8 @@ def cmd_calibrate(args) -> int:
         pretrained = Path(args.pretrained) if args.pretrained else latest_checkpoint()
         print(f"Using pretrained model {pretrained.name}")
         saved = torch.load(pretrained, map_location="cpu", weights_only=False)
-        channels, classes = saved["channels"], saved["classes"]
+        # Classes come from the request: a checkpoint with a different set gets a new head.
+        channels, classes = saved["channels"], _classes(args.classes)
     calibrate(Path(args.recording), pretrained, channels, classes, SignalConfig(),
               Path(args.schedule) if args.schedule else None, Path(args.out))
     return 0
@@ -170,6 +176,13 @@ def cmd_listen(args) -> int:
         if message["event"]:
             print(f"{message['t']:8.2f}s  EVENT {message['event']}")
     return 0
+
+
+def cmd_type(args) -> int:
+    from .typing_app import run_app
+
+    return run_app(host=args.host, port=args.port, letter_gap_s=args.letter_gap,
+                   word_gap_s=args.word_gap, simulate=args.simulate)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -205,7 +218,9 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(run=cmd_replay)
 
     p = commands.add_parser("record", help="show cues and capture a labelled session")
-    p.add_argument("--out", default=str(DATA_DIR / "recordings" / "session1"))
+    p.add_argument("--mode", required=True, choices=["imagined", "real"],
+                   help="imagined keeps the hands still; real is the fallback")
+    p.add_argument("--out", help="default: data/recordings/<mode>")
     p.add_argument("--classes", default=classes)
     p.add_argument("--per-class", type=int, default=25)
     p.add_argument("--blocks", type=int, default=3)
@@ -240,6 +255,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=9999)
     p.set_defaults(run=cmd_listen)
+
+    p = commands.add_parser("type", help="the Morse typing screen")
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=9999)
+    p.add_argument("--letter-gap", type=float, default=3.0, help="seconds at rest to end a letter")
+    p.add_argument("--word-gap", type=float, default=7.0, help="seconds at rest to end a word")
+    p.add_argument("--simulate", action="store_true", help="type with . and - keys, no decoder")
+    p.set_defaults(run=cmd_type)
 
     args = parser.parse_args(argv)
     return args.run(args)

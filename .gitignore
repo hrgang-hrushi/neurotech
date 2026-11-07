@@ -20,9 +20,13 @@ data/
 *.asc
 *.xdf
 *.fif
+*.npz
 
 # Trained models: rebuild with `eegmove pretrain`, or share over Discord or a flash drive.
 artifacts/
+*.joblib
+*.pt
+*.verdict.json
 
 # Machine-specific LSL settings (contains the ANT laptop IP)
 lsl_api.cfg
