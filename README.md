@@ -69,6 +69,10 @@ uv run eegmove live
 
 ## Building the app
 
+The browser communication app is in `web/`. See the
+[SignalSpeak runbook](docs/COMMUNICATION_APP.md) for manual rehearsal,
+the UDP-to-WebSocket bridge, live EEG, replay, and Morse integration.
+
 The app is a separate program in any language. It listens for JSON on UDP port 9999:
 
 ```json

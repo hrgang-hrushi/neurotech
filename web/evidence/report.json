@@ -1,0 +1,24 @@
+{
+  "contract": "SignalSpeak is a local, projector-readable communication tool. The selected phrase and Speak action lead the page; input source and connection state stay visible. Phrase selection requires one movement; Morse remains experimental. Reference: ANT Neuro hackathon prompt and the existing decoder's UDP JSON contract in the repository.",
+  "targetViewports": ["1366x768", "390x844"],
+  "accessibility": {
+    "status": "pass",
+    "evidence": "Controls are semantic buttons with labels and pressed states. Keyboard Tab reached the Phrase board button and produced a visible 3px amber focus outline. Space triggered a movement when focus was outside controls. Status has text in addition to color; reduced-motion CSS disables tile transitions."
+  },
+  "responsive": {
+    "status": "pass",
+    "evidence": "Rendered at 1366x768, 1280x720, and 390x844. No horizontal overflow was observed at 390px or 1280px. The laptop layout keeps the message, phrase board, source badge, and signal panel visible; mobile stacks the signal panel beneath the board."
+  },
+  "contentStates": {
+    "loading": { "status": "pass", "evidence": "Selecting Live EEG or Replay shows a waiting state and local bridge address while the WebSocket connects." },
+    "empty": { "status": "pass", "evidence": "Before selection, the message box says to choose a phrase; Morse mode says decoded text will appear there." },
+    "error": { "status": "pass", "evidence": "Stopping packets for 3 seconds changes the replay badge to OFFLINE, shows a decoder/LSL recovery hint, and keeps the selected phrase visible." },
+    "partial": { "status": "pass", "evidence": "Manual events omit confidence and latency; the panel displays Not provided and a dash rather than fabricated values." },
+    "success": { "status": "pass", "evidence": "A manual movement selected a phrase, paused scanning, enabled Speak, and offered Undo and Clear. Browser speech status reported completion." },
+    "permission": { "status": "not-applicable", "reason": "The app uses local input and browser speech synthesis without requesting an access permission." }
+  },
+  "renderedEvidence": [
+    { "viewport": "1366x768", "artifact": "manual-phrase-desktop.png", "observation": "Selected phrase and confirmation controls are prominent; source label and phrase board are visible." },
+    { "viewport": "390x844", "artifact": "manual-phrase-mobile.png", "observation": "Message, controls, and first phrase tiles fit without horizontal clipping; remaining content scrolls vertically." }
+  ]
+}
