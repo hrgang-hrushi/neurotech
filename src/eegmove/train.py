@@ -18,6 +18,8 @@ from torch import nn
 from .models import (SessionModel, ShallowNet, TrainConfig, fit_net, flip_maps, make_riemann,
                      net_probs)
 from .preprocess import apply_whitening, whitening_matrix
+from .quality import WindowGate
+from .verdict import save_offline
 
 BASELINE_WINDOWS = 20  # about what a 60-second resting baseline gives us live
 
@@ -176,8 +178,13 @@ def evaluate_session(data: Windows, cfg: SignalConfig, pretrained: Path | None, 
 
 
 def calibrate(recording: Path, pretrained: Path | None, channels: list[str], classes: list[str],
-              cfg: SignalConfig, schedule: Path | None, out: Path, use_net: bool = True) -> dict:
+              cfg: SignalConfig, schedule: Path | None, out: Path, use_net: bool = True,
+              movement: str = "unknown") -> dict:
     data, baseline = load_recording(recording, channels, classes, cfg, schedule)
+    keep = WindowGate(baseline).mask(data.X)
+    if not keep.all():
+        print(f"Quality gate rejected {(~keep).sum()} of {len(keep)} windows.")
+        data = data.select(keep)
     counts = dict(zip(classes, np.bincount(data.y, minlength=len(classes)).tolist()))
     print(f"{len(data)} windows from {len(np.unique(data.trial))} cues. Windows per class: {counts}")
     whitening = whitening_matrix(baseline)
@@ -188,13 +195,16 @@ def calibrate(recording: Path, pretrained: Path | None, channels: list[str], cla
     for name, result in results.items():
         shown = {k: v for k, v in result.items() if not k.endswith("_raw")}
         print(f"  {name:9s} {shown}")
-    best = max(results, key=lambda name: results[name]["balanced_accuracy"])
+    best = max(results, key=lambda name: results[name]["balanced_raw"])
     print(f"Using: {best}")
 
     riemann = make_riemann().fit(aligned.X.astype(np.float64), aligned.y)
     net = _finetune(pretrained, aligned, cfg).cpu() if use_net else None
-    model = SessionModel(channels, classes, cfg, whitening, net, riemann, best)
+    model = SessionModel(channels, classes, cfg, whitening, net, riemann, best, movement)
     out.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, out)
-    print(f"Saved {out}")
+    record = save_offline(out, movement, best, results[best])
+    print(f"Saved {out} ({movement} movement). Next: eegmove check {out}")
+    print(f"Held-out left vs right: {results[best]['left_right']}")
+    print(f"Still needed for GO: {'; '.join(record['reasons'])}")
     return results

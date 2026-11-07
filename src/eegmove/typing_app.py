@@ -6,8 +6,10 @@ Everything runs on Tk's thread: UDP is polled and never read from a second threa
 from __future__ import annotations
 
 import socket
+from pathlib import Path
 
 from .morse import MorseTyper, SimulatedKeys
+from .verdict import Refused, choose_model
 from .words import load_words
 
 BACKGROUND = "#20242c"
@@ -83,16 +85,22 @@ def run_window(typer: MorseTyper, sock: socket.socket | None, simulated: Simulat
 
 
 def run_app(host: str = "127.0.0.1", port: int = 9999, letter_gap_s: float = 3.0,
-            word_gap_s: float = 7.0, simulate: bool = False) -> int:
+            word_gap_s: float = 7.0, simulate: bool = False, artifact_dir: Path | None = None) -> int:
     words = load_words()
     if simulate:
         # No socket at all, so simulated keys can never mix with live decoder messages.
         typer = MorseTyper(words, letter_gap_s, word_gap_s)
         run_window(typer, None, SimulatedKeys(), "keys: . is a dot, - is a dash")
         return 0
+    try:
+        choice = choose_model(artifact_dir)
+    except Refused as error:
+        print(error)
+        return 2
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((host, port))
     sock.setblocking(False)
-    typer = MorseTyper(words, letter_gap_s, word_gap_s)
-    run_window(typer, sock, None, "left hand is a dot, right hand is a dash")
+    typer = MorseTyper(words, letter_gap_s, word_gap_s, expect_model=choice.sha,
+                       expect_threshold=choice.threshold)
+    run_window(typer, sock, None, choice.banner)
     return 0

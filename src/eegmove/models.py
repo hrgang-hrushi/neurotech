@@ -138,12 +138,20 @@ def net_probs(model: ShallowNet, X: np.ndarray, batch_size: int = 512) -> np.nda
 
 
 class SessionModel:
-    """What the live loop runs: signal settings, whitening, and the chosen decoder(s)."""
+    """What the live loop runs: signal settings, whitening, and the chosen decoder(s).
+
+    `mode` is which decoder runs. `movement` is what it was calibrated on: imagined or real.
+    The default sits on the class so that files saved before it existed load as unknown.
+    """
+
+    movement: str = "unknown"
 
     def __init__(self, channels: list[str], classes: list[str], cfg: SignalConfig,
-                 whitening: np.ndarray, net: ShallowNet | None, riemann, mode: str):
+                 whitening: np.ndarray, net: ShallowNet | None, riemann, mode: str,
+                 movement: str = "unknown"):
         self.channels, self.classes, self.cfg = channels, classes, cfg
         self.whitening, self.net, self.riemann, self.mode = whitening, net, riemann, mode
+        self.movement = movement
 
     def predict_proba(self, aligned: np.ndarray) -> np.ndarray:
         parts = []

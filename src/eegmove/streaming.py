@@ -58,6 +58,7 @@ class EegInlet:
         info = self.inlet.info(timeout=timeout)
         self.sfreq = float(info.nominal_srate())
         self.labels = stream_labels(info)
+        self.source = "replay" if info.source_id().endswith("-replay") else "eeg"
         print(f"Connected: name={info.name()!r} type={info.type()!r} channels="
               f"{info.channel_count()} rate={self.sfreq} Hz format={info.channel_format()}")
         print(f"Labels: {self.labels or 'none in the stream metadata'}")
@@ -78,6 +79,10 @@ class EegInlet:
         self.channels = list(channels) if channels else (
             [self.labels[i] for i in self.picks] if self.labels
             else [f"ch{i}" for i in self.picks])
+
+    def flush(self) -> None:
+        """Drop buffered samples, so the next data is from now and not the last 30 seconds."""
+        self.inlet.flush()
 
     def pull(self, timeout: float = 0.1) -> tuple[np.ndarray, np.ndarray]:
         """Return (samples, timestamps); samples are (n_samples, n_channels)."""

@@ -13,6 +13,9 @@ different movements, broader deployment.
 So there are two parts: a decoder (EEG to movement) and an app that does something useful with it.
 This repo's decoder sends events over UDP so the two can be built separately.
 
+Our app is Morse typing from **imagined** hand movement, with real movement as a labelled fallback.
+See [the feature doc](features/thought-morse.md).
+
 ## Deadlines
 
 | When | What |
@@ -62,3 +65,5 @@ The eego extensions manual, which covers LSL, isn't in the shared folder. These 
 - Whether we can read LSL during the **first** rotation, not only the later ones
 - Whether a hardware or network marker is available, and which annotation keys are set up
 - Whether our laptop can join the ANT network on macOS without extra setup
+- **Whether imagined movement counts as the track's core input**, since the brief says everyday movement
+- Whether the bipolar inputs could carry a forearm EMG, to show the hands really are still

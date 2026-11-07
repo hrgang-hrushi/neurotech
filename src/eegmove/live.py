@@ -4,6 +4,10 @@ Any app, in any language, can listen on the UDP port, so the decoder and the app
 built separately. Each message looks like:
     {"t": 12.5, "probs": {"rest": 0.7, ...}, "state": "rest", "event": null, "latency_ms": 41.2}
 `state` is the current smoothed guess. `event` is non-null once per deliberate movement.
+
+Later fields: `run` and `seq` identify and order messages, `ok` is false on a rejected window
+(with `reason`), `rest` is true only when rest really leads, `source` says live EEG or replay,
+`movement` and `model` name what is decoding, and `snr_db` and `warning` report signal strength.
 """
 
 from __future__ import annotations
@@ -11,6 +15,8 @@ from __future__ import annotations
 import json
 import socket
 import time
+import uuid
+from collections.abc import Iterator
 from pathlib import Path
 
 import joblib
@@ -19,7 +25,14 @@ import pylsl
 
 from .models import SessionModel
 from .preprocess import StreamPreprocessor, apply_whitening, whitening_matrix
+from .quality import SnrMonitor, WindowGate
 from .streaming import EegInlet
+from .verdict import model_sha1
+
+# At 0.25 s steps: 3 s between symbols, 2 s of rest to re-arm (one window length, so the
+# last movement has left the window), and 4 s to free a state nothing confirms.
+MORSE_DEBOUNCE = {"refractory": 12, "rest_dwell": 8, "release_after": 16}
+MIN_BASELINE_WINDOWS = 5
 
 
 class RingBuffer:
@@ -103,67 +116,157 @@ class Debouncer:
         self.candidate, self.streak, self.rest_top = None, 0, False
 
 
+class WindowDecider:
+    """One window in, one decision out. No LSL or sockets, so it can be tested on its own."""
+
+    def __init__(self, model: SessionModel, whitening: np.ndarray, gate: WindowGate | None,
+                 debounce: Debouncer, monitor: SnrMonitor | None):
+        self.model, self.whitening, self.gate = model, whitening, gate
+        self.debounce, self.monitor = debounce, monitor
+
+    def _quality(self, window: np.ndarray, clean: bool) -> tuple[bool, str | None]:
+        if self.gate is None:
+            return False, "no_baseline"  # nothing to judge the signal against, so fail closed
+        if not clean:
+            return False, "nonfinite"
+        return self.gate.check(window)
+
+    def step(self, window: np.ndarray, clean: bool = True) -> dict:
+        ok, reason = self._quality(window, clean)
+        if not ok:
+            self.debounce.hold()
+            return {"ok": False, "reason": reason, "probs": None, "state": self.debounce.state,
+                    "event": None, "rest": False, "snr_db": None, "warning": None}
+        probs = self.model.predict_proba(apply_whitening(window[None], self.whitening))[0]
+        state, event = self.debounce.update(probs)
+        snr, warning = self.monitor.update(window, state) if self.monitor else (None, None)
+        return {"ok": True, "reason": None,
+                "probs": {c: round(float(p), 3) for c, p in zip(self.model.classes, probs)},
+                "state": state, "event": event,
+                "rest": state == self.debounce.idle and self.debounce.rest_top,
+                "snr_db": None if snr is None else round(snr, 2), "warning": warning}
+
+
+class LiveSession:
+    """A running decoder: stream, filters, baseline, and one message per step."""
+
+    def __init__(self, model_path: Path, stream: str | None = None, threshold: float = 0.6,
+                 step_s: float = 0.25, inlet=None):
+        self.model: SessionModel = joblib.load(model_path)
+        self.sha = model_sha1(model_path)
+        self.cfg = self.model.cfg
+        self.threshold, self.step_s = threshold, step_s
+        self.inlet = inlet or EegInlet(self.model.channels, name=stream)
+        self.source = getattr(self.inlet, "source", "eeg")
+        self.movement = self.model.movement
+        self.pre = StreamPreprocessor(self.inlet.sfreq, len(self.model.channels), self.cfg)
+        self.ring = RingBuffer(len(self.model.channels), self.cfg.n_times)
+        self.run_id = uuid.uuid4().hex[:8]
+        self.seq = -1
+        self.dirty = 0  # model-rate samples until bad raw data has left the window
+        self.pending = 0
+        self.monitor: SnrMonitor | None = None
+        debounce = Debouncer(self.model.classes, threshold=threshold, **MORSE_DEBOUNCE)
+        self.decider = WindowDecider(self.model, self.model.whitening, None, debounce, None)
+
+    def flush(self) -> None:
+        flush = getattr(self.inlet, "flush", None)
+        if flush:
+            flush()
+
+    def _take(self, timeout: float) -> tuple[np.ndarray, np.ndarray]:
+        samples, stamps = self.inlet.pull(timeout=timeout)
+        bad = len(samples) > 0 and not np.isfinite(samples).all()
+        filtered = self.pre.process(samples)
+        self.ring.push(filtered)
+        self.pending += len(filtered)
+        self.dirty = self.cfg.n_times if bad else max(0, self.dirty - len(filtered))
+        return filtered, stamps
+
+    def collect_baseline(self, seconds: float) -> bool:
+        """Refresh alignment from rest, and set the reference the signal is judged against.
+
+        Sessions drift: the cap goes back on slightly differently and impedances change, and
+        this needs no labels. It returns False if there was no usable signal, and then every
+        window is rejected rather than decoded blind.
+        """
+        windows, fresh = [], 0
+        stride = self.cfg.n_times // 2
+        stop = time.monotonic() + seconds
+        while time.monotonic() < stop:
+            filtered, _ = self._take(timeout=0.1)
+            fresh += len(filtered)
+            if self.ring.ready and fresh >= stride and self.dirty == 0:
+                windows.append(self.ring.window())
+                fresh = 0
+        if len(windows) < MIN_BASELINE_WINDOWS:
+            print(f"WARNING: only {len(windows)} baseline windows, so nothing will be decoded.")
+            return False
+        rest = np.asarray(windows)
+        try:
+            whitening = whitening_matrix(rest)
+        except ValueError as error:
+            print(f"WARNING: {error}")
+            return False
+        self.monitor = SnrMonitor(rest, self.model.channels, self.cfg.sfreq)
+        self.decider.whitening = whitening
+        self.decider.gate = WindowGate(rest)
+        self.decider.monitor = self.monitor
+        print(f"Baseline done: alignment refreshed from {len(windows)} windows.")
+        return True
+
+    def signal_strength(self) -> dict | None:
+        if self.monitor is None:
+            return None
+        return {"db": round(self.monitor.baseline_db, 2), "region": self.monitor.region}
+
+    def decode(self) -> Iterator[dict | None]:
+        """Yield a message per step, or None while waiting, so callers can keep time."""
+        step = max(1, int(round(self.step_s * self.cfg.sfreq)))
+        start = time.time()
+        while True:
+            _, stamps = self._take(timeout=0.05)
+            if not self.ring.ready or self.pending < step:
+                yield None
+                continue
+            self.pending %= step
+            message = self.decider.step(self.ring.window(), clean=self.dirty == 0)
+            self.seq += 1
+            latency = (pylsl.local_clock() - stamps[-1]) * 1000 if len(stamps) else float("nan")
+            yield {"run": self.run_id, "seq": self.seq, "step_s": self.step_s,
+                   "t": round(time.time() - start, 3),
+                   "lsl_time": float(stamps[-1]) if len(stamps) else None,
+                   "source": self.source, "movement": self.movement, "model": self.sha,
+                   "threshold": self.threshold, "latency_ms": round(latency, 1), **message}
+
+
 def run_live(model_path: Path, host: str = "127.0.0.1", port: int = 9999, stream: str | None = None,
              baseline_s: float = 60.0, step_s: float = 0.25, duration_s: float | None = None,
              threshold: float = 0.6, quiet: bool = False) -> list[dict]:
-    model: SessionModel = joblib.load(model_path)
-    cfg = model.cfg
-    inlet = EegInlet(model.channels, name=stream)
-    pre = StreamPreprocessor(inlet.sfreq, len(model.channels), cfg)
-    ring = RingBuffer(len(model.channels), cfg.n_times)
+    session = LiveSession(model_path, stream=stream, threshold=threshold, step_s=step_s)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    debounce = Debouncer(model.classes, threshold=threshold)
-
-    # Sessions drift: the cap goes back on slightly differently and impedances change. A
-    # short resting baseline refreshes the alignment with no labels at all.
-    whitening = model.whitening
-    if baseline_s > 0:
-        print(f"Baseline: sit still and relax for {baseline_s:.0f}s ...")
-        collected = []
-        stop = time.time() + baseline_s
-        while time.time() < stop:
-            samples, _ = inlet.pull()
-            ring.push(pre.process(samples))
-            if ring.ready and (not collected or ring_step(collected, ring)):
-                collected.append(ring.window())
-        if len(collected) >= 5:
-            whitening = whitening_matrix(np.asarray(collected))
-            print(f"Baseline done: alignment refreshed from {len(collected)} windows.")
-        else:
-            print("WARNING: baseline too short, keeping the alignment from calibration.")
+    print(f"Model: {session.movement} movement, {session.sha}")
+    print(f"Baseline: sit still and relax for {baseline_s:.0f}s ...")
+    session.collect_baseline(baseline_s)
 
     print(f"Decoding. Sending JSON to udp://{host}:{port}. Ctrl-C stops.")
-    step = max(1, int(round(step_s * cfg.sfreq)))
-    pending, log = 0, []
+    log = []
     start = time.time()
     try:
-        while duration_s is None or time.time() - start < duration_s:
-            samples, stamps = inlet.pull(timeout=0.05)
-            filtered = pre.process(samples)
-            ring.push(filtered)
-            pending += len(filtered)
-            if not ring.ready or pending < step:
+        for message in session.decode():
+            if duration_s is not None and time.time() - start >= duration_s:
+                break
+            if message is None:
                 continue
-            pending = 0
-            probs = model.predict_proba(apply_whitening(ring.window()[None], whitening))[0]
-            state, event = debounce.update(probs)
-            latency = (pylsl.local_clock() - stamps[-1]) * 1000 if len(stamps) else float("nan")
-            message = {"t": round(time.time() - start, 3),
-                       "lsl_time": float(stamps[-1]) if len(stamps) else None,
-                       "probs": {c: round(float(p), 3) for c, p in zip(model.classes, probs)},
-                       "state": state, "event": event, "latency_ms": round(latency, 1)}
             sock.sendto(json.dumps(message).encode(), (host, port))
             log.append(message)
             if not quiet:
-                bars = " ".join(f"{c}:{p:4.2f}" for c, p in zip(model.classes, probs))
-                print(f"{bars} | {state:>6}{' EVENT ' + event if event else ''} | "
-                      f"{latency:5.0f} ms")
+                if message["ok"]:
+                    bars = " ".join(f"{c}:{p:4.2f}" for c, p in message["probs"].items())
+                else:
+                    bars = f"rejected: {message['reason']}"
+                event = f" EVENT {message['event']}" if message["event"] else ""
+                print(f"{bars} | {message['state']:>6}{event} | {message['latency_ms']:5.0f} ms")
     except KeyboardInterrupt:
         pass
     return log
-
-
-def ring_step(collected: list[np.ndarray], ring: RingBuffer) -> bool:
-    """During baseline, keep one window per half-overlap rather than one per pull."""
-    size = collected[-1].shape[1]
-    return not np.array_equal(collected[-1][:, size // 2:], ring.window()[:, :size - size // 2])

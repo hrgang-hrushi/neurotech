@@ -50,13 +50,16 @@ class FakeCapture:
 
 def motor_recording(strength: float, seed: int = 0, per_class: int = 24, channels=("C3", "C4", "Fz", "Pz"),
                     sfreq: float = 160.0, cue_s: float = 4.0, gap_s: float = 2.0,
-                    baseline_s: float = 30.0):
+                    baseline_s: float = 30.0, hit_rate: float = 1.0):
     """Continuous EEG with rest/left/right cues and a lateralized 12 Hz drop of `strength`.
 
     strength 0 means the cues change nothing, so it is noise with cue labels. Slow gain drift
-    keeps the noise non-stationary, like a real session.
+    keeps the noise non-stationary, like a real session. `hit_rate` is the share of cues that
+    produce any change at all, because first-time users only manage it on some attempts, and
+    a steady small drop is unrealistically easy to classify.
     """
     rng = np.random.default_rng(seed)
+    hits = np.random.default_rng(seed + 1000)
     labels = ["rest", "left", "right"] * per_class
     rng.shuffle(labels)
     cues = [{"onset_s": 0.0, "duration_s": baseline_s, "label": "baseline"}]
@@ -71,6 +74,8 @@ def motor_recording(strength: float, seed: int = 0, per_class: int = 24, channel
     amplitude = np.ones((n, 2))
     for cue in cues[1:]:
         start, stop = int(cue["onset_s"] * sfreq), int((cue["onset_s"] + cue_s) * sfreq)
+        if hits.random() >= hit_rate:
+            continue
         if cue["label"] == "left":
             amplitude[start:stop, 1] = 1 - strength  # left hand: right-hemisphere C4 drops
         elif cue["label"] == "right":

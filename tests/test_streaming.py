@@ -4,6 +4,7 @@ import uuid
 
 import numpy as np
 
+from eegmove.cli import main
 from eegmove.streaming import EegInlet, replay
 
 
@@ -29,3 +30,13 @@ def test_replayed_stream_arrives_in_model_channel_order_without_junk_channels():
     assert received.shape[1] == 2
     np.testing.assert_allclose(received[:, 0] - received[:, 1], 1000.0)
     assert (np.diff(received[:, 1]) == 1).all(), "samples were dropped or reordered"
+
+
+def test_replay_command_runs(monkeypatch):
+    """--run once shadowed the command itself, so `eegmove replay` crashed on start."""
+    played = []
+    monkeypatch.setattr("eegmove.streaming.physionet_replay_signal",
+                        lambda subject, run, sfreq, units: (played.append(run) or np.zeros((1, 1)), ["C3"]))
+    monkeypatch.setattr("eegmove.streaming.replay", lambda *args, **kwargs: None)
+    assert main(["replay", "--run", "4"]) == 0
+    assert played == [4]

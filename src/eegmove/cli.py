@@ -72,6 +72,8 @@ def cmd_doctor(args) -> int:
     check("pretrained model on disk", bool(checkpoints), ", ".join(p.name for p in checkpoints))
     count = len(list((DATA_DIR / "mne").rglob("*.edf")))
     check("PhysioNet data cached", count > 0, f"{count} EDF files")
+    imagined = len(list((DATA_DIR / "mne").rglob("*R04.edf")))
+    check("Imagined PhysioNet runs cached", imagined > 0, f"{imagined} subjects")
     return 0 if ok else 1
 
 
@@ -118,7 +120,8 @@ def cmd_replay(args) -> int:
         replay(saved["eeg"], [str(c) for c in saved["channels"]], float(saved["sfreq"]),
                loops=args.loops)
         return 0
-    signal, labels = physionet_replay_signal(args.subject, args.run, args.sfreq, args.units)
+    signal, labels = physionet_replay_signal(args.subject, args.physionet_run, args.sfreq,
+                                             args.units)
     replay(signal, labels, args.sfreq, loops=args.loops)
     return 0
 
@@ -140,26 +143,51 @@ def cmd_record(args) -> int:
 def cmd_calibrate(args) -> int:
     import torch
 
+    from .datasets import recording_channels, recording_movement
     from .train import calibrate, latest_checkpoint
+    from .verdict import session_path
 
+    recording = Path(args.recording)
+    schedule = Path(args.schedule) if args.schedule else None
+    movement = args.mode or recording_movement(recording, schedule)
+    if movement == "unknown":
+        print("WARNING: this recording has no mode, so it can't earn a GO. Pass --mode.")
     if args.pretrained == "none":
-        channels, classes, pretrained = list(ASSUMED_MONTAGE), _classes(args.classes), None
+        channels, classes, pretrained = recording_channels(recording), _classes(args.classes), None
     else:
         pretrained = Path(args.pretrained) if args.pretrained else latest_checkpoint()
         print(f"Using pretrained model {pretrained.name}")
         saved = torch.load(pretrained, map_location="cpu", weights_only=False)
         # Classes come from the request: a checkpoint with a different set gets a new head.
         channels, classes = saved["channels"], _classes(args.classes)
-    calibrate(Path(args.recording), pretrained, channels, classes, SignalConfig(),
-              Path(args.schedule) if args.schedule else None, Path(args.out))
+    calibrate(recording, pretrained, channels, classes, SignalConfig(), schedule,
+              Path(args.out) if args.out else session_path(movement), movement=movement)
     return 0
+
+
+def cmd_check(args) -> int:
+    from .check import run_check
+
+    record = run_check(Path(args.model), stream=args.stream, baseline_s=args.baseline,
+                       rest_s=args.rest, n_cues=args.cues, threshold=args.threshold)
+    return 0 if record["go"] else 3
 
 
 def cmd_live(args) -> int:
     from .live import run_live
+    from .verdict import Refused, choose_model
 
-    run_live(Path(args.model), host=args.host, port=args.port, stream=args.stream,
-             baseline_s=args.baseline, duration_s=args.duration, threshold=args.threshold,
+    model, threshold = args.model, args.threshold
+    if model is None:
+        try:
+            choice = choose_model()
+        except Refused as error:
+            print(f"{error}\nTo rehearse anyway, pass --model. `eegmove type` will still refuse it.")
+            return 2
+        print(choice.banner)
+        model, threshold = choice.model_path, threshold or choice.threshold
+    run_live(Path(model), host=args.host, port=args.port, stream=args.stream,
+             baseline_s=args.baseline, duration_s=args.duration, threshold=threshold or 0.6,
              quiet=args.quiet)
     return 0
 
@@ -189,7 +217,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="eegmove", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     classes = ",".join(DEFAULT_CLASSES)
-    session_model = str(ARTIFACT_DIR / "session.joblib")
 
     p = commands.add_parser("doctor", help="check this laptop is ready for the ANT station")
     p.set_defaults(run=cmd_doctor)
@@ -211,7 +238,8 @@ def main(argv: list[str] | None = None) -> int:
     p = commands.add_parser("replay", help="imitate the eego LSL stream with no headset")
     p.add_argument("--recording", help="replay a saved .npz instead of PhysioNet")
     p.add_argument("--subject", type=int, default=1)
-    p.add_argument("--run", type=int, default=3)
+    # dest matters: main() calls args.run, so a plain --run would replace the command.
+    p.add_argument("--run", dest="physionet_run", type=int, default=3)
     p.add_argument("--sfreq", type=float, default=500.0)
     p.add_argument("--units", choices=["uV", "V"], default="uV")
     p.add_argument("--loops", type=int, default=0, help="0 repeats forever")
@@ -237,17 +265,28 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--schedule", help="cue log JSON, needed for eego exports")
     p.add_argument("--pretrained", help="checkpoint path, or 'none' to skip transfer learning")
     p.add_argument("--classes", default=classes)
-    p.add_argument("--out", default=session_model)
+    p.add_argument("--mode", choices=["imagined", "real"],
+                   help="only for recordings made before modes existed")
+    p.add_argument("--out", help="default: artifacts/session-<mode>.joblib")
     p.set_defaults(run=cmd_calibrate)
 
+    p = commands.add_parser("check", help="measure a model live and record whether it may type")
+    p.add_argument("model")
+    p.add_argument("--stream", help="LSL stream name, if several are visible")
+    p.add_argument("--baseline", type=float, default=60.0)
+    p.add_argument("--rest", type=float, default=120.0)
+    p.add_argument("--cues", type=int, default=20)
+    p.add_argument("--threshold", type=float, default=0.6)
+    p.set_defaults(run=cmd_check)
+
     p = commands.add_parser("live", help="decode the LSL stream and send JSON over UDP")
-    p.add_argument("--model", default=session_model)
+    p.add_argument("--model", help="default: the model that passed its check")
     p.add_argument("--stream", help="LSL stream name, if several are visible")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=9999)
     p.add_argument("--baseline", type=float, default=60.0, help="seconds of rest before decoding")
     p.add_argument("--duration", type=float)
-    p.add_argument("--threshold", type=float, default=0.6)
+    p.add_argument("--threshold", type=float, help="default: the one the check passed with")
     p.add_argument("--quiet", action="store_true")
     p.set_defaults(run=cmd_live)
 

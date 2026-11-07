@@ -223,6 +223,12 @@ def load_recording(path: Path, channels: list[str], classes: list[str], cfg: Sig
         events = [(t0 + c["onset_s"], c["duration_s"], c["label"]) for c in log["cues"]]
 
     signal = _select_channels(signal, labels, channels)
+    bad = ~np.isfinite(signal).all(axis=1)
+    if bad.any():
+        kept = [e for e in events
+                if not bad[int(e[0] * sfreq):int((e[0] + e[1]) * sfreq) + 1].any()]
+        print(f"Dropped {len(events) - len(kept)} cues containing non-finite samples.")
+        events = kept
     filtered = StreamPreprocessor(sfreq, len(channels), cfg).process(signal)
     x, y, trial = cut_trials(filtered, events, classes, cfg)
     windows = Windows(x, y, trial, np.zeros(len(y), int), list(channels), list(classes))
