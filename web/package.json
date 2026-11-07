@@ -6,17 +6,22 @@
   "scripts": {
     "dev": "vite",
     "bridge": "node server/bridge.mjs",
-    "test": "node --test server/bridge.test.mjs",
+    "test": "node --test server/*.test.mjs",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/space-grotesk": "^5.3.0",
+    "d3-shape": "^3.2.1",
+    "lucide-react": "^1.70.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "ws": "^8.22.1"
   },
   "devDependencies": {
+    "@types/d3-shape": "^3.2.0",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

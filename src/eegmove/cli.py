@@ -26,6 +26,13 @@ def _classes(spec: str) -> list[str]:
     return [c.strip() for c in spec.split(",") if c.strip()]
 
 
+def _udp_port(value: str) -> int:
+    port = int(value)
+    if not 1 <= port <= 65535:
+        raise argparse.ArgumentTypeError("port must be between 1 and 65535")
+    return port
+
+
 def cmd_doctor(args) -> int:
     """Check the things that can't be fixed once on the ANT network, which may have no internet."""
     ok = True
@@ -114,12 +121,23 @@ def cmd_replay(args) -> int:
     if args.recording:
         import numpy as np
 
-        saved = np.load(args.recording, allow_pickle=False)
-        replay(saved["eeg"], [str(c) for c in saved["channels"]], float(saved["sfreq"]),
-               loops=args.loops)
+        with np.load(args.recording, allow_pickle=False) as saved:
+            signal = saved["eeg"]
+            labels = [str(label) for label in saved["channels"]]
+            rate = float(saved["sfreq"])
+            units = None
+            try:
+                metadata = saved["units"]
+            except (KeyError, ValueError):
+                metadata = None
+            if (metadata is not None and metadata.shape == (len(labels),)
+                    and metadata.dtype.kind == "U"):
+                units = [str(unit) or None for unit in metadata]
+        replay(signal, labels, rate, loops=args.loops, units=units)
         return 0
-    signal, labels = physionet_replay_signal(args.subject, args.run, args.sfreq, args.units)
-    replay(signal, labels, args.sfreq, loops=args.loops)
+    signal, labels = physionet_replay_signal(args.subject, args.dataset_run, args.sfreq, args.units)
+    units = [args.units if label not in {"TRIGGER", "COUNTER"} else None for label in labels]
+    replay(signal, labels, args.sfreq, loops=args.loops, units=units)
     return 0
 
 
@@ -155,6 +173,20 @@ def cmd_live(args) -> int:
     run_live(Path(args.model), host=args.host, port=args.port, stream=args.stream,
              baseline_s=args.baseline, duration_s=args.duration, threshold=args.threshold,
              quiet=args.quiet)
+    return 0
+
+
+def cmd_monitor(args) -> int:
+    from .telemetry import run_monitor
+
+    try:
+        run_monitor(stream=args.stream, source=args.source, port=args.telemetry_port,
+                    duration=args.duration)
+    except (TimeoutError, ValueError, OSError) as error:
+        print(f"EEG monitor: {error}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 0
     return 0
 
 
@@ -198,7 +230,7 @@ def main(argv: list[str] | None = None) -> int:
     p = commands.add_parser("replay", help="imitate the eego LSL stream with no headset")
     p.add_argument("--recording", help="replay a saved .npz instead of PhysioNet")
     p.add_argument("--subject", type=int, default=1)
-    p.add_argument("--run", type=int, default=3)
+    p.add_argument("--run", dest="dataset_run", type=int, default=3)
     p.add_argument("--sfreq", type=float, default=500.0)
     p.add_argument("--units", choices=["uV", "V"], default="uV")
     p.add_argument("--loops", type=int, default=0, help="0 repeats forever")
@@ -235,6 +267,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--threshold", type=float, default=0.6)
     p.add_argument("--quiet", action="store_true")
     p.set_defaults(run=cmd_live)
+
+    p = commands.add_parser("monitor", help="send LSL waveforms and spectra without a model")
+    p.add_argument("--stream", help="exact LSL stream name, if several are visible")
+    p.add_argument("--source", choices=["live", "replay"], default="live")
+    p.add_argument("--telemetry-port", type=_udp_port, default=9996, metavar="PORT")
+    p.add_argument("--duration", type=float, help="seconds to monitor after connecting")
+    p.set_defaults(run=cmd_monitor)
 
     p = commands.add_parser("listen", help="print events from `eegmove live`")
     p.add_argument("--host", default="127.0.0.1")

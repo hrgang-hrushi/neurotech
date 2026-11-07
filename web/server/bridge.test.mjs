@@ -20,9 +20,10 @@ test('native EEG UDP packets and Morse updates reach the WebSocket with source a
   const morsePort = base + 1
   const wsPort = base + 2
   const commandPort = base + 3
+  const telemetryPort = base + 4
   const child = spawn(process.execPath, ['server/bridge.mjs', '--source', 'replay',
     '--eeg-port', String(eegPort), '--morse-port', String(morsePort), '--ws-port', String(wsPort),
-    '--command-port', String(commandPort)],
+    '--command-port', String(commandPort), '--telemetry-port', String(telemetryPort), '--morse', 'external'],
   { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] })
   const eeg = dgram.createSocket('udp4')
   const morse = dgram.createSocket('udp4')
@@ -40,6 +41,21 @@ test('native EEG UDP packets and Morse updates reach the WebSocket with source a
     socket.on('message', (bytes) => seen.push(JSON.parse(bytes.toString())))
     await new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject) })
     await waitFor(() => seen.some((event) => event.type === 'status' && !event.connected))
+    const signal = {
+      type: 'eeg_channel', source: 'replay', stream_id: 'fixture', stream_name: 'EEG test',
+      channel: 'C3', channel_index: 0, channel_count: 1, sample_rate_hz: 250, unit: 'µV',
+      waveform: { time_s: [-0.004, 0], values: [2, 4] },
+      spectrum: { frequency_hz: [8, 10, 12], power_density: [0.02, 0.9, 0.03] },
+    }
+    eeg.send(JSON.stringify({ ...signal, source: 'live' }), telemetryPort, '127.0.0.1')
+    eeg.send(JSON.stringify(signal), telemetryPort, '127.0.0.1')
+    await waitFor(() => seen.some((event) => event.type === 'eeg_frame'))
+    const frame = seen.find((event) => event.type === 'eeg_frame')
+    assert.equal(frame.source, 'replay')
+    assert.equal(frame.channels.length, 1)
+    assert.deepEqual(frame.channels[0].spectrum, signal.spectrum)
+    assert.ok(seen.some((event) => event.type === 'eeg_status' && event.connected))
+    assert.ok(!seen.some((event) => event.type === 'status' && event.connected))
     eeg.send(JSON.stringify({
       t: 1.2, probs: { rest: 0.1, left: 0.8, right: 0.1 },
       state: 'left', event: 'left', latency_ms: 40,
@@ -62,6 +78,7 @@ test('native EEG UDP packets and Morse updates reach the WebSocket with source a
       eegPort, '127.0.0.1')
     await waitFor(() => seen.some((event) => event.type === 'movement_end'))
     await waitFor(() => seen.filter((event) => event.type === 'status' && !event.connected).length >= 2)
+    assert.ok(seen.filter((event) => event.type === 'eeg_status' && !event.connected).length >= 2)
   } finally {
     socket?.close()
     eeg.close()

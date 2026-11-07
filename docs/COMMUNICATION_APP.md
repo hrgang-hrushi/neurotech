@@ -1,105 +1,68 @@
-# SignalSpeak communication app
+# SignalSpeak
 
-The app in `web/` turns decoded movement events into selectable spoken phrases. It also
-shows text supplied by the separate Morse decoder. The core path needs only one
-detectable movement. Morse mode is experimental until short/long events are verified
-with real data.
+SignalSpeak turns decoded movement into Morse text or a selected phrase. The message studio shows both the written Morse and its translation. The signal monitor has a separate LSL feed, so you can see whether EEG samples arrive even before the movement model is calibrated.
 
-## Run locally
+## Start the workspace
 
-Install dependencies before joining the ANT router, which may have no internet:
+Install the dependencies before joining the ANT router. It may have no internet.
 
 ```bash
-cd web
-npm ci
+uv sync --locked
+npm --prefix web ci
+npm --prefix web run dev
 ```
 
-Manual test needs no headset or backend:
+Open the Vite URL using localhost or 127.0.0.1. **Manual test** works without a headset or bridge. Use the dot and dash buttons or the `.` and `-` keys. Pauses or the **End letter** and **End word** buttons commit the sequence. **Speak message** reads the current text. **Auto-speak words** reads each completed valid word when enabled. Speech uses the browser and its available device voices.
+
+## Live EEG
+
+Connect to the ANT network and start the headset's EEG LSL outlet. In separate terminals at the repository root, run the following. Replace `EXACT_LSL_NAME` with the stream name.
 
 ```bash
-npm run dev
+npm --prefix web run bridge -- --source live
+uv run eegmove monitor --stream 'EXACT_LSL_NAME'
 ```
 
-Open the URL Vite prints. Leave the source on **MANUAL TEST**. In Phrase mode,
-wait for the scan outline, then press Space outside a control or use **Trigger
-one movement**. Click **Speak message** to hear the selection. Phrase tiles are
-clickable only in manual mode. In Morse mode, **Load a labeled sample decoder
-event** demonstrates the UI contract; it is explicitly manual data.
+Choose **Live EEG** in the app. Look for **EEG receiving** and check the channel count, sampling rate, waveform, and spectrum. Select **Show all** to view every reported electrode in the current chart mode, or select one electrode for numerical axes and inspection. Freeze holds the displayed data while the status still reports whether new samples arrive.
 
-## Connect to the existing EEG decoder
+The monitor streams a rolling two second window. It displays measured waveform extrema with timestamps and estimates one sided power spectral density with Welch's method. The plot uses the stream's declared units when available. A spectrum needs at least one second of usable samples. Frequencies up to 100 Hz retain their bin detail. Higher frequencies may be grouped to fit UDP packets.
 
-The Python decoder publishes JSON over UDP port 9999. Browsers cannot read UDP,
-so `web/server/bridge.mjs` forwards it to a local WebSocket. Run these in
-separate terminals:
-
-From the repository root, use one terminal for each command:
+To control the app with EEG, run the calibrated movement model as well.
 
 ```bash
-(cd web && npm run bridge -- --source live)
-uv run eegmove live
-(cd web && npm run dev)
+uv run eegmove live --stream 'EXACT_LSL_NAME'
 ```
 
-Select **Live EEG** in the app. The bridge listens on UDP 9999 and WebSocket
-8765, both bound to `127.0.0.1`. Run the bridge *instead of* `eegmove listen`,
-because both would bind UDP 9999. The app displays **LIVE EEG · OFFLINE** until
-the bridge actually receives decoder packets. After 3 seconds without packets,
-it shows disconnected.
+The session status reports the movement decoder independently of EEG telemetry. The built-in Morse decoder uses confirmed **left** events for dots and **right** events for dashes. It translates a letter after 2.6 seconds and closes a word after 5.8 seconds without a symbol. The Phrase board needs one confirmed movement to select the highlighted phrase. Pause, adjust scan speed, undo, or speak the selection from the workspace.
 
-For recorded LSL replay, restart the bridge with `--source replay`, run
-`eegmove replay` and `eegmove live`, then select **Replay** in the app. The
-source flag is an operator declaration. Always use the correct setting so
-recorded input is never presented as live.
+## Recorded replay
 
-If the UI runs on a different laptop, the current loopback bridge cannot be
-reached. Move the app to the decoder laptop or deliberately configure a trusted
-local network bridge; do not expose raw EEG or the bridge on a public network.
+Start the recorded stream, monitor, and replay bridge in separate terminals. Choose **Recorded replay** in the app.
 
-## Integration contract
-
-The existing decoder sends packets such as:
-
-```json
-{"t":12.5,"probs":{"rest":0.1,"left":0.8,"right":0.05,"feet":0.05},"state":"left","event":"left","latency_ms":41.2}
+```bash
+uv run eegmove replay --subject 1 --run 3
+uv run eegmove monitor --stream eego-replay --source replay
+npm --prefix web run bridge -- --source replay
 ```
 
-The bridge converts these to WebSocket messages:
+The first command uses a PhysioNet recording and may need internet to download it once. Use `eegmove replay --recording path/to/session.npz` for a local recording. If you have a matching calibrated movement model, run `uv run eegmove live --stream eego-replay` alongside the monitor. The built-in replay outlet is rejected by the live monitor. Source selection and bridge labels should always reflect the actual data used.
 
-- `status`: whether EEG packets are arriving.
-- `prediction`: state, confidence, and latency.
-- `movement_start`: emitted once for a non-null decoder event.
-- `movement_end`: emitted when the decoder returns to rest.
-- `decoder_update`: forwarded from the Morse teammate's UDP port 9998.
+## Local transport
 
-All messages include `type`, `source` (`live` or `replay`), and
-`timestamp_ms`. A Morse decoder can send JSON to
-`udp://127.0.0.1:9998`:
+| Port | Flow |
+| --- | --- |
+| UDP 9996 | Monitor → bridge. Per-electrode waveforms, PSD, channel labels, units, and source. |
+| UDP 9999 | Movement decoder → bridge. Existing `state`, `event`, `probs`, and `latency_ms` JSON. |
+| WebSocket 8765 | Bridge → browser. Separate telemetry and classifier status, channel frames, movements, and Morse updates. |
 
-```json
-{"pending_symbols":".-","text":"A","decoder_state":"Ready for next symbol","confidence":0.82}
-```
+The WebSocket defaults to `ws://127.0.0.1:8765`. Override it with `VITE_SIGNAL_WS_URL` if you change the local bridge port. `eegmove listen` and the bridge both bind UDP 9999. The bridge, monitor, and decoder belong on the same laptop.
 
-`text` is the complete current composition, not only the newest character.
-The UI displays it without running a second Morse decoder. In live or replay
-mode, Backspace and Clear send `{"type":"decoder_command","action":"backspace"}`
-or `{"type":"decoder_command","action":"clear"}` as UDP to port 9997.
-The Morse decoder must receive those commands and publish a fresh
-`decoder_update`; the UI waits for that authoritative update. Manual mode edits
-its sample text locally. If the teammate's format differs, change the mapping
-in `server/bridge.mjs`.
+Use `npm --prefix web run bridge -- --source live --morse external` for the teammate's decoder. Send the complete `text` and `pending_symbols` to UDP 9998. Optional fields are `written_morse`, `decoder_state`, and `spoken_word` for one completed word. Backspace and Clear forward `decoder_command` JSON to UDP 9997. The external decoder owns those updates.
 
-The WebSocket URL defaults to `ws://127.0.0.1:8765`. It can be changed with
-`VITE_SIGNAL_WS_URL` at build time. The bridge ports can be changed with
-`--eeg-port`, `--morse-port`, `--command-port`, and `--ws-port`.
+## Demo sequence
 
-## Presentation route
+1. Show the source and connection status. Open the waveform and spectrum for one electrode, then show the full channel gallery.
+2. Send a dot and dash and show how the message studio turns them into **A**. Speak the result.
+3. Use the Phrase board to show the one movement path to an everyday message.
 
-1. Show the source badge and connected EEG status.
-2. Let the phrase outline reach a useful phrase.
-3. Make one movement. Show movement, confidence, and selection.
-4. Click **Speak message**.
-5. If Morse is verified, switch modes and show actual decoded text. If not,
-   keep it labeled experimental.
-
-Speech uses the browser's built-in speech synthesis. A browser without it still
-shows the selected message. The app stores no EEG samples or participant data.
+Use **Manual test** for keyboard input and **Recorded replay** for a recording. The headset and movement model must be exercised together before presenting a live movement demo.

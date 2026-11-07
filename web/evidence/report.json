@@ -1,24 +1,24 @@
 {
-  "contract": "SignalSpeak is a local, projector-readable communication tool. The selected phrase and Speak action lead the page; input source and connection state stay visible. Phrase selection requires one movement; Morse remains experimental. Reference: ANT Neuro hackathon prompt and the existing decoder's UDP JSON contract in the repository.",
-  "targetViewports": ["1366x768", "390x844"],
+  "contract": "SignalSpeak leads with a two-column communication and EEG workspace. The Morse transcript and speech action are prominent. The chart shows measured signal data and names its source. The dark design uses grayscale and two locally hosted font families.",
+  "targetViewports": ["1440x1000", "390x844"],
   "accessibility": {
     "status": "pass",
-    "evidence": "Controls are semantic buttons with labels and pressed states. Keyboard Tab reached the Phrase board button and produced a visible 3px amber focus outline. Space triggered a movement when focus was outside controls. Status has text in addition to color; reduced-motion CSS disables tile transitions."
+    "evidence": "Labeled input source, chart, channel selector and message controls. Manual dot and dash keyboard input, chart keyboard inspection and visible focus checked. The interface supports reduced motion and conveys source and stream state in text."
   },
   "responsive": {
     "status": "pass",
-    "evidence": "Rendered at 1366x768, 1280x720, and 390x844. No horizontal overflow was observed at 390px or 1280px. The laptop layout keeps the message, phrase board, source badge, and signal panel visible; mobile stacks the signal panel beneath the board."
+    "evidence": "Browser verified at widths 320, 390, 768, 1366 and 1440. A long translated message and long channel name fit at 320px without horizontal page overflow. The workspace stacks on mobile."
   },
   "contentStates": {
-    "loading": { "status": "pass", "evidence": "Selecting Live EEG or Replay shows a waiting state and local bridge address while the WebSocket connects." },
-    "empty": { "status": "pass", "evidence": "Before selection, the message box says to choose a phrase; Morse mode says decoded text will appear there." },
-    "error": { "status": "pass", "evidence": "Stopping packets for 3 seconds changes the replay badge to OFFLINE, shows a decoder/LSL recovery hint, and keeps the selected phrase visible." },
-    "partial": { "status": "pass", "evidence": "Manual events omit confidence and latency; the panel displays Not provided and a dash rather than fabricated values." },
-    "success": { "status": "pass", "evidence": "A manual movement selected a phrase, paused scanning, enabled Speak, and offered Undo and Clear. Browser speech status reported completion." },
-    "permission": { "status": "not-applicable", "reason": "The app uses local input and browser speech synthesis without requesting an access permission." }
+    "loading": { "status": "pass", "evidence": "A local bridge connection can be pending while the EEG monitor shows that no samples have arrived." },
+    "empty": { "status": "pass", "evidence": "Manual mode and the disconnected EEG mode show no trace or invented sample rate." },
+    "error": { "status": "pass", "evidence": "Lost telemetry is marked interrupted after the freshness timeout. The last captured trace can still be inspected." },
+    "partial": { "status": "pass", "evidence": "An unavailable electrode stays selectable. Its plot explains the missing samples. Missing units and unavailable spectra have explicit fallback states." },
+    "success": { "status": "pass", "evidence": "An actual PhysioNet replay supplied 64 channels through LSL, UDP and WebSocket. The browser rendered waveform and spectrum, expanded all 64 channels, and froze and resumed a chart. Confirmed movement fixtures translated into a browser speech request. Manual Morse translated HI and the browser reported speech completion." },
+    "permission": { "status": "not-applicable", "reason": "The browser connects to a loopback bridge and invokes device speech synthesis without requesting hardware access." }
   },
   "renderedEvidence": [
-    { "viewport": "1366x768", "artifact": "manual-phrase-desktop.png", "observation": "Selected phrase and confirmation controls are prominent; source label and phrase board are visible." },
-    { "viewport": "390x844", "artifact": "manual-phrase-mobile.png", "observation": "Message, controls, and first phrase tiles fit without horizontal clipping; remaining content scrolls vertically." }
+    { "viewport": "1440x1000", "artifact": "recorded-eeg-desktop.png", "observation": "Recorded replay source, 64 EEG channels, a measured C3 waveform and independent movement decoder state." },
+    { "viewport": "390x844", "artifact": "manual-morse-mobile.png", "observation": "Manual Morse input, translated HI, speech action, and a truthful empty EEG monitor in a vertical stack." }
   ]
 }

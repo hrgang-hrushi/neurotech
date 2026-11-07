@@ -18,16 +18,18 @@ from .config import normalize_label
 NON_EEG = re.compile(r"^(trigger|trg|counter|sample|bip|aux|status|stim)", re.IGNORECASE)
 
 
-def stream_labels(info: pylsl.StreamInfo) -> list[str]:
-    labels = []
+def stream_channel_field(info: pylsl.StreamInfo, field: str) -> list[str]:
+    values = []
     channel = info.desc().child("channels").child("channel")
     for _ in range(info.channel_count()):
-        label = channel.child_value("label")
-        if not label:
-            return []
-        labels.append(label)
+        values.append(channel.child_value(field).strip())
         channel = channel.next_sibling()
-    return labels
+    return values
+
+
+def stream_labels(info: pylsl.StreamInfo) -> list[str]:
+    labels = stream_channel_field(info, "label")
+    return labels if all(labels) else []
 
 
 def match_channels(labels: list[str], wanted: list[str]) -> tuple[list[int], list[str]]:
@@ -43,7 +45,7 @@ class EegInlet:
     """Connect to the first EEG stream and return samples in the requested channel order."""
 
     def __init__(self, channels: list[str] | None = None, name: str | None = None,
-                 timeout: float = 15.0):
+                 timeout: float = 15.0, *, dejitter: bool = True):
         prop, value = ("name", name) if name else ("type", "EEG")
         print(f"Looking for an LSL stream with {prop}={value} ...")
         found = pylsl.resolve_byprop(prop, value, timeout=timeout)
@@ -53,31 +55,41 @@ class EegInlet:
                 "Network access for your terminal in macOS Privacy settings, and if it still "
                 "fails copy lsl_api.cfg.example to lsl_api.cfg with the ANT laptop's IP."
             )
+        processing_flags = pylsl.proc_clocksync | (pylsl.proc_dejitter if dejitter else 0)
         self.inlet = pylsl.StreamInlet(found[0], max_buflen=30, recover=True,
-                                       processing_flags=pylsl.proc_clocksync | pylsl.proc_dejitter)
+                                       processing_flags=processing_flags)
         info = self.inlet.info(timeout=timeout)
+        self.name = info.name()
+        self.source_id = info.source_id()
+        self.uid = info.uid()
         self.sfreq = float(info.nominal_srate())
-        self.labels = stream_labels(info)
+        labels = stream_channel_field(info, "label")
+        self.labels = labels if all(labels) else []
         print(f"Connected: name={info.name()!r} type={info.type()!r} channels="
               f"{info.channel_count()} rate={self.sfreq} Hz format={info.channel_format()}")
         print(f"Labels: {self.labels or 'none in the stream metadata'}")
-        if self.sfreq <= 0:
+        if not np.isfinite(self.sfreq) or self.sfreq <= 0:
             raise ValueError("Stream reports no sample rate, so it can't be filtered correctly.")
 
         if channels is None:
-            self.picks = [i for i, name in enumerate(self.labels) if not NON_EEG.match(name)] \
-                or list(range(info.channel_count()))
+            types = stream_channel_field(info, "type")
+            self.picks = [i for i, (label, kind) in enumerate(zip(labels, types))
+                          if not NON_EEG.match(label) and not NON_EEG.match(kind)]
+            if not self.picks:
+                raise ValueError("The stream has no EEG channels in its channel metadata.")
         elif self.labels:
             self.picks, missing = match_channels(self.labels, channels)
             if missing:
                 raise ValueError(f"Model needs channels the stream lacks: {missing}. "
                                  "Rerun: eegmove pretrain --montage-from <recording>")
         else:
+            if len(channels) > info.channel_count():
+                raise ValueError("The unlabeled stream has fewer channels than the model needs.")
             print("WARNING: no channel labels, so assuming they arrive in the model's order.")
             self.picks = list(range(len(channels)))
-        self.channels = list(channels) if channels else (
-            [self.labels[i] for i in self.picks] if self.labels
-            else [f"ch{i}" for i in self.picks])
+        self.channels = list(channels) if channels else [labels[i] or f"ch{i}" for i in self.picks]
+        units = stream_channel_field(info, "unit")
+        self.units = [units[i] or None for i in self.picks]
 
     def pull(self, timeout: float = 0.1) -> tuple[np.ndarray, np.ndarray]:
         """Return (samples, timestamps); samples are (n_samples, n_channels)."""
@@ -87,28 +99,37 @@ class EegInlet:
         return np.asarray(samples, dtype=np.float64)[:, self.picks], np.asarray(stamps)
 
 
-def make_outlet(name: str, labels: list[str], sfreq: float) -> pylsl.StreamOutlet:
+def make_outlet(name: str, labels: list[str], sfreq: float,
+                units: list[str | None] | None = None) -> pylsl.StreamOutlet:
     info = pylsl.StreamInfo(name, "EEG", len(labels), sfreq, pylsl.cf_float32, f"{name}-replay")
     channels = info.desc().append_child("channels")
-    for label in labels:
-        channels.append_child("channel").append_child_value("label", label)
+    for index, label in enumerate(labels):
+        channel = channels.append_child("channel")
+        channel.append_child_value("label", label)
+        if units is not None and units[index]:
+            channel.append_child_value("unit", units[index])
     return pylsl.StreamOutlet(info, chunk_size=16)
 
 
 def replay(signal: np.ndarray, labels: list[str], sfreq: float, name: str = "eego-replay",
-           loops: int = 0) -> None:
+           loops: int = 0, units: list[str | None] | None = None) -> None:
     """Push (n_samples, n_channels) in real time. loops=0 repeats until interrupted."""
-    outlet = make_outlet(name, labels, sfreq)
+    outlet = make_outlet(name, labels, sfreq, units)
     chunk = max(1, int(sfreq / 32))
     print(f"Streaming {name!r}: {len(labels)} channels at {sfreq} Hz. Ctrl-C stops it.")
     played = 0
+    start = pylsl.local_clock()
+    sent = 0
     while loops == 0 or played < loops:
-        start = pylsl.local_clock()
-        for sent in range(0, len(signal), chunk):
-            outlet.push_chunk(signal[sent:sent + chunk].tolist())
-            delay = start + (sent + chunk) / sfreq - pylsl.local_clock()
+        for offset in range(0, len(signal), chunk):
+            samples = signal[offset:offset + chunk]
+            sent += len(samples)
+            timestamp = start + (sent - 1) / sfreq
+            delay = timestamp - pylsl.local_clock()
             if delay > 0:
                 time.sleep(delay)
+            # Anchor the final sample in each chunk to acquisition time, not send jitter.
+            outlet.push_chunk(samples.tolist(), timestamp=timestamp)
         played += 1
 
 

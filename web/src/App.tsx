@@ -1,272 +1,427 @@
 import { useEffect, useRef, useState } from 'react'
-import { connectSignals, requestDecoderEdit, WS_URL, type SignalEvent, type Source } from './signalAdapter'
+import {
+  Activity, AudioLines, ChevronDown, Delete, Keyboard,
+  List, Pause, Play, Trash2, Volume2,
+} from 'lucide-react'
+import MorseKeys from './MorseKeys'
+import SignalPanel from './SignalPanel'
+import { createMorseDecoder, morseReference, type MorseDecoder, type MorseUpdate } from './morse.mjs'
+import { connectSignals, requestDecoderEdit, type EegChannel, type SignalEvent, type Source } from './signalAdapter'
 import './App.css'
 
-type Mode = 'phrases' | 'morse'
-type Connection = 'waiting' | 'connected' | 'disconnected'
-
-const PHRASES = [
-  { text: 'Yes', hint: 'Confirm' },
-  { text: 'No', hint: 'Decline' },
-  { text: 'Please repeat that', hint: 'Clarify' },
-  { text: 'I need a break', hint: 'Pause' },
-  { text: 'Thank you', hint: 'Appreciate' },
-  { text: 'Can we talk?', hint: 'Connect' },
+const phrases = [
+  'Yes', 'No', 'Please repeat that', 'I need a break', 'Thank you', 'Can we talk?',
 ]
-const SOURCE_LABEL: Record<Source, string> = {
-  live: 'LIVE EEG', replay: 'RECORDED REPLAY', manual: 'MANUAL TEST',
-}
-const COOLDOWN_MS = 900
-const MIN_CONFIDENCE = 0.6
 
-function formatTime(timestamp: number | null): string {
-  return timestamp === null ? '—' : new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+const sourceNames: Record<Source, string> = {
+  live: 'Live EEG',
+  replay: 'Recorded replay',
+  manual: 'Manual test',
 }
 
-function App() {
-  const [mode, setMode] = useState<Mode>('phrases')
-  const [source, setSource] = useState<Source>('manual')
-  const [connection, setConnection] = useState<Connection>('connected')
-  const [connectionMessage, setConnectionMessage] = useState('Manual test is ready. No EEG stream is being used.')
+type Mode = 'morse' | 'phrases'
+type LogEntry = { text: string; time: number; id: number }
+
+const emptyMorse: MorseUpdate = {
+  pending_symbols: '', written_morse: '', text: '', decoder_state: 'Ready for a symbol',
+}
+
+function formatTime(time: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).format(time)
+}
+
+function useBridge(source: Source, onEvent: (event: SignalEvent) => void, onClose: () => void) {
+  const socketRef = useRef<WebSocket | null>(null)
+  const handlers = useRef({ onEvent, onClose })
+  const [bridgeState, setBridgeState] = useState('Connecting to the local bridge')
+  const [matched, setMatched] = useState(false)
+
+  useEffect(() => { handlers.current = { onEvent, onClose } })
+
+  useEffect(() => {
+    if (source === 'manual') return
+    let active = true
+    let retry: ReturnType<typeof setTimeout>
+
+    function connect() {
+      const socket = connectSignals((event) => {
+        if (!active) return
+        if (event.source === source) {
+          setMatched(true)
+          handlers.current.onEvent(event)
+        } else setBridgeState(`Bridge is sending ${sourceNames[event.source].toLowerCase()}.`)
+      }, (message) => { if (active) setBridgeState(message) })
+
+      socketRef.current = socket
+      socket.onopen = () => {
+        if (!active) return
+        setBridgeState('Local bridge connected')
+      }
+      socket.onclose = () => {
+        if (!active) return
+        setMatched(false)
+        setBridgeState('Local bridge unavailable. Reconnecting…')
+        handlers.current.onClose()
+        retry = setTimeout(connect, 1800)
+      }
+    }
+
+    connect()
+    return () => {
+      active = false
+      clearTimeout(retry)
+      socketRef.current?.close()
+      socketRef.current = null
+    }
+  }, [source])
+
+  return { socketRef, matched, bridgeState }
+}
+
+function Workspace({ source, setSource, mode, setMode }: {
+  source: Source
+  setSource: (source: Source) => void
+  mode: Mode
+  setMode: (mode: Mode) => void
+}) {
+  const [morse, setMorse] = useState(emptyMorse)
+  const [manualDecoder, setManualDecoder] = useState<MorseDecoder | null>(null)
+  const [channels, setChannels] = useState<EegChannel[]>([])
+  const [signalConnected, setSignalConnected] = useState(false)
+  const [decoderConnected, setDecoderConnected] = useState(false)
+  const [morseMode, setMorseMode] = useState<'built-in' | 'external'>('built-in')
+  const [movement, setMovement] = useState('')
+  const [confidence, setConfidence] = useState<number | null>(null)
+  const [latency, setLatency] = useState<number | null>(null)
+  const [phrase, setPhrase] = useState('')
   const [scanIndex, setScanIndex] = useState(0)
   const [scanMs, setScanMs] = useState(1500)
   const [paused, setPaused] = useState(false)
-  const [selectedPhrase, setSelectedPhrase] = useState('')
-  const [morseText, setMorseText] = useState('')
-  const [pendingSymbols, setPendingSymbols] = useState('')
-  const [decoderState, setDecoderState] = useState('Waiting for decoder')
-  const [movement, setMovement] = useState('No movement yet')
-  const [confidence, setConfidence] = useState<number | null>(null)
-  const [latency, setLatency] = useState<number | null>(null)
-  const [lastEventAt, setLastEventAt] = useState<number | null>(null)
-  const [trail, setTrail] = useState<string[]>(['Choose an input source to begin'])
-  const [speechMessage, setSpeechMessage] = useState('')
-  const speechSupported = typeof window !== 'undefined' && 'speechSynthesis' in window
-  const lastSelectionRef = useRef(0)
-  const movementActiveRef = useRef(false)
-  const eventHandlerRef = useRef<(event: SignalEvent) => void>(() => {})
-  const socketRef = useRef<WebSocket | null>(null)
+  const [autoSpeak, setAutoSpeak] = useState(false)
+  const [speechState, setSpeechState] = useState('')
+  const [activity, setActivity] = useState<LogEntry[]>([])
+  const logId = useRef(0)
+  const lastSelection = useRef(0)
+  const gestureActive = useRef(false)
+  const onMorseUpdate = useRef<(update: MorseUpdate) => void>(() => {})
+  const speechSupported = typeof window.speechSynthesis !== 'undefined'
 
-  function addTrail(entry: string) {
-    setTrail((current) => [entry, ...current].slice(0, 4))
+  function log(text: string) {
+    const entry = { text, time: Date.now(), id: ++logId.current }
+    setActivity((previous) => [entry, ...previous].slice(0, 5))
   }
 
-  function speak(text: string) {
-    if (!text.trim()) return
-    if (!speechSupported) {
-      setSpeechMessage('Speech is unavailable in this browser. The message remains visible.')
-      return
-    }
-    window.speechSynthesis.cancel()
+  function speak(text: string, interrupt = true) {
+    if (!text.trim() || !speechSupported) return
+    if (interrupt) window.speechSynthesis.cancel()
     const utterance = new SpeechSynthesisUtterance(text)
-    utterance.rate = 0.9
-    utterance.onstart = () => setSpeechMessage('Speaking now')
-    utterance.onend = () => { setSpeechMessage('Message spoken'); addTrail(`Speech finished: “${text}”`) }
-    utterance.onerror = () => setSpeechMessage('Speech could not play. The message remains visible.')
+    utterance.rate = 0.95
+    utterance.onstart = () => setSpeechState('Speaking…')
+    utterance.onend = () => {
+      setSpeechState('Spoken')
+      log(`Spoken · ${text}`)
+    }
+    utterance.onerror = ({ error }) => {
+      if (error !== 'canceled' && error !== 'interrupted') setSpeechState('Speech is unavailable on this device.')
+    }
     window.speechSynthesis.speak(utterance)
-    addTrail(`Speech requested: “${text}”`)
   }
 
-  function handleSignalEvent(event: SignalEvent) {
-    if (event.source !== source) {
-      setConnectionMessage(`Ignoring ${event.source} input while ${SOURCE_LABEL[source]} is selected`)
-      return
-    }
-    setLastEventAt(event.timestamp_ms)
-    if (event.type === 'status') {
-      setConnection(event.connected ? 'connected' : 'disconnected')
-      setConnectionMessage(event.message || (event.connected ? 'EEG stream connected' : 'Waiting for EEG stream'))
-      return
-    }
-    if (event.type === 'prediction') {
-      if (event.state) setMovement(event.state === 'rest' ? 'Rest' : event.state)
-      if (typeof event.confidence === 'number') setConfidence(event.confidence)
-      if (typeof event.latency_ms === 'number' && Number.isFinite(event.latency_ms)) setLatency(event.latency_ms)
-      return
-    }
-    if (event.type === 'movement_end') {
-      movementActiveRef.current = false
-      return
-    }
-    if (event.type === 'decoder_update') {
-      setPendingSymbols(event.pending_symbols || '')
-      setMorseText(event.text || '')
-      setDecoderState(event.decoder_state || (event.pending_symbols ? 'Composing a letter' : 'Ready for next symbol'))
-      if (typeof event.confidence === 'number') setConfidence(event.confidence)
-      addTrail(`Decoder updated: ${event.text || event.pending_symbols || 'empty'}`)
-      return
-    }
-    if (movementActiveRef.current) return
-    movementActiveRef.current = true
-    setMovement(event.movement || 'Movement detected')
-    setConfidence(typeof event.confidence === 'number' ? event.confidence : null)
-    addTrail(`Movement detected${event.movement ? `: ${event.movement}` : ''}`)
-    if (mode !== 'phrases' || paused) return
-    if (typeof event.confidence === 'number' && event.confidence < MIN_CONFIDENCE) {
-      addTrail('Low-confidence movement ignored')
-      return
-    }
-    if (Date.now() - lastSelectionRef.current < COOLDOWN_MS) return
-    lastSelectionRef.current = Date.now()
-    const phrase = PHRASES[scanIndex].text
-    setSelectedPhrase(phrase)
-    setPaused(true)
-    addTrail(`Selected: “${phrase}”`)
-  }
   useEffect(() => {
-    eventHandlerRef.current = handleSignalEvent
+    onMorseUpdate.current = (update) => {
+      setMorse(update)
+      if (update.spoken_word && mode === 'morse' && autoSpeak) speak(update.spoken_word, false)
+    }
   })
 
   useEffect(() => {
+    if (source !== 'manual') return
+    const decoder = createMorseDecoder((update) => onMorseUpdate.current(update))
+    setManualDecoder(decoder)
+    return () => decoder.dispose()
+  }, [source])
+
+  useEffect(() => () => {
+    if (speechSupported) window.speechSynthesis.cancel()
+  }, [speechSupported])
+
+  function selectPhrase(value: string) {
+    setPhrase(value)
+    setPaused(true)
+    setSpeechState('')
+    lastSelection.current = Date.now()
+    log(`Selected · ${value}`)
+  }
+
+  function selectHighlighted() {
+    if (!paused && Date.now() - lastSelection.current >= 900) selectPhrase(phrases[scanIndex])
+  }
+
+  const { socketRef, matched, bridgeState } = useBridge(source, (event) => {
+    switch (event.type) {
+      case 'eeg_status':
+        setSignalConnected(event.connected === true)
+        return
+      case 'eeg_frame': {
+        const incoming = event.channels ?? []
+        if (!incoming.length) return
+        setChannels((previous) => {
+          const sameStream = previous[0]?.stream_id === incoming[0].stream_id
+          const next = new Map((sameStream ? previous : []).map((channel) => [channel.channel_index, channel]))
+          for (const channel of incoming) next.set(channel.channel_index, channel)
+          return [...next.values()].sort((a, b) => a.channel_index - b.channel_index)
+        })
+        return
+      }
+      case 'status':
+        setDecoderConnected(event.connected === true)
+        if (event.morse_mode) setMorseMode(event.morse_mode)
+        return
+      case 'prediction':
+        setLatency(Number.isFinite(event.latency_ms) ? event.latency_ms! : null)
+        return
+      case 'movement_end':
+        gestureActive.current = false
+        return
+      case 'movement_start':
+        setMovement(event.movement || 'Movement')
+        setConfidence(Number.isFinite(event.confidence) ? event.confidence! : null)
+        log(`Movement · ${event.movement || 'Detected'}`)
+        if (mode === 'phrases' && !gestureActive.current && (event.confidence ?? 1) >= 0.6) {
+          selectHighlighted()
+        }
+        gestureActive.current = true
+        return
+      case 'decoder_update':
+        onMorseUpdate.current({
+          pending_symbols: event.pending_symbols ?? '',
+          written_morse: event.written_morse ?? '',
+          text: event.text ?? '',
+          decoder_state: event.decoder_state ?? 'Decoder update received',
+          spoken_word: event.spoken_word,
+        })
+    }
+  }, () => {
+    setSignalConnected(false)
+    setDecoderConnected(false)
+    gestureActive.current = false
+  })
+
+  useEffect(() => {
+    if (!matched || morseMode === 'external') return
+    requestDecoderEdit(socketRef.current, mode === 'morse' ? 'arm' : 'disarm')
+  }, [matched, mode, morseMode, socketRef])
+
+  useEffect(() => {
     if (mode !== 'phrases' || paused) return
-    const timer = window.setInterval(() => setScanIndex((index) => (index + 1) % PHRASES.length), scanMs)
+    const timer = window.setInterval(() => setScanIndex((index) => (index + 1) % phrases.length), scanMs)
     return () => window.clearInterval(timer)
   }, [mode, paused, scanMs])
 
   useEffect(() => {
-    if (source === 'manual') return
-    let disposed = false
-    const socket = connectSignals(
-      (event) => { if (!disposed) eventHandlerRef.current(event) },
-      (message) => { if (!disposed) setConnectionMessage(message) },
-    )
-    socketRef.current = socket
-    socket.onopen = () => { if (!disposed) setConnectionMessage('Bridge connected; waiting for EEG stream') }
-    socket.onerror = () => {
-      if (!disposed) {
-        setConnection('disconnected')
-        setConnectionMessage(`Could not reach the local bridge at ${WS_URL}`)
-      }
-    }
-    socket.onclose = () => {
-      if (!disposed) {
-        setConnection('disconnected')
-        setConnectionMessage('Bridge disconnected. Start or restart the local bridge.')
-      }
-    }
-    return () => { disposed = true; socketRef.current = null; socket.close() }
-  }, [source])
-
-  useEffect(() => {
-    if (source !== 'manual') return
-    const onKeyDown = (event: KeyboardEvent) => {
+    if (mode !== 'phrases' || source !== 'manual' || paused) return
+    function onKeyDown(event: KeyboardEvent) {
       if (event.code !== 'Space' || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
-      const target = event.target as HTMLElement | null
-      if (target?.closest('button, input, select, textarea, [contenteditable="true"]')) return
+      if ((event.target as HTMLElement | null)?.closest('button, input, select, textarea, [contenteditable]')) return
       event.preventDefault()
-      const timestamp_ms = Date.now()
-      eventHandlerRef.current({ type: 'movement_start', source: 'manual', timestamp_ms, movement: 'manual press' })
-      eventHandlerRef.current({ type: 'movement_end', source: 'manual', timestamp_ms: timestamp_ms + 1 })
+      if (Date.now() - lastSelection.current >= 900) {
+        const value = phrases[scanIndex]
+        lastSelection.current = Date.now()
+        setPhrase(value)
+        setPaused(true)
+        setSpeechState('')
+        log(`Selected · ${value}`)
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [source])
+  }, [source, mode, paused, scanIndex])
 
-  function manualMovement() {
-    if (source !== 'manual') return
-    const timestamp_ms = Date.now()
-    eventHandlerRef.current({ type: 'movement_start', source: 'manual', timestamp_ms, movement: 'manual press' })
-    eventHandlerRef.current({ type: 'movement_end', source: 'manual', timestamp_ms: timestamp_ms + 1 })
+  function edit(action: 'backspace' | 'clear') {
+    setSpeechState('')
+    if (mode === 'phrases') {
+      setPhrase('')
+      if (action === 'backspace') setPaused(false)
+      return
+    }
+    if (source === 'manual') {
+      if (action === 'backspace') manualDecoder?.backspace()
+      else manualDecoder?.clear()
+    } else if (!matched || !requestDecoderEdit(socketRef.current, action)) {
+      setSpeechState('Connect the local bridge to edit the transcript.')
+    }
   }
 
-  function clearMessage() {
-    if (mode === 'phrases') { setSelectedPhrase(''); setSpeechMessage(''); return }
-    if (source === 'manual') { setMorseText(''); setPendingSymbols(''); setSpeechMessage(''); return }
-    setSpeechMessage(requestDecoderEdit(socketRef.current, 'clear')
-      ? 'Clear requested. Waiting for the decoder to confirm.'
-      : 'Decoder bridge unavailable. The current text remains visible.')
+  function selectMode(next: Mode) {
+    if (mode === next) return
+    if (next === 'phrases') manualDecoder?.pause()
+    setMode(next)
+    setSpeechState('')
+    if (speechSupported) window.speechSynthesis.cancel()
   }
 
-  function backspaceMorse() {
-    if (source === 'manual') { setMorseText((text) => text.slice(0, -1)); return }
-    setSpeechMessage(requestDecoderEdit(socketRef.current, 'backspace')
-      ? 'Backspace requested. Waiting for the decoder to confirm.'
-      : 'Decoder bridge unavailable. The current text remains visible.')
-  }
-
-  function selectSource(next: Source) {
-    if (next === source) return
-    movementActiveRef.current = false
-    lastSelectionRef.current = 0
-    setConfidence(null)
-    setLatency(null)
-    setLastEventAt(null)
-    setMovement('No movement yet')
-    setSelectedPhrase('')
-    setMorseText('')
-    setPendingSymbols('')
-    setSpeechMessage('')
-    setPaused(false)
-    setConnection(next === 'manual' ? 'connected' : 'waiting')
-    setConnectionMessage(next === 'manual'
-      ? 'Manual test is ready. No EEG stream is being used.'
-      : `Connecting to local bridge at ${WS_URL}…`)
-    setSource(next)
-    setTrail([`Source changed to ${SOURCE_LABEL[next]}`])
-  }
-
-  const displayText = mode === 'phrases' ? selectedPhrase : morseText
-  const sourceDetail = source === 'manual' ? 'Keyboard or button input' : source === 'replay' ? 'Recorded data through local bridge' : 'ANT headset through local bridge'
-  const badgeText = source === 'manual' ? SOURCE_LABEL[source] : `${SOURCE_LABEL[source]} · ${connection === 'connected' ? 'CONNECTED' : 'OFFLINE'}`
+  const output = mode === 'morse' ? morse.text : phrase
+  const symbols = morse.written_morse || morse.pending_symbols
+  const hasEditContent = Boolean(output || (mode === 'morse' && symbols))
+  const sourceStatus = source === 'manual'
+    ? 'Keyboard ready'
+    : signalConnected ? (source === 'live' ? 'EEG receiving' : 'Replay receiving') : 'No EEG samples'
+  const morseHint = morseMode === 'external'
+    ? 'Translating updates from the external Morse decoder.'
+    : 'Left movement sends a dot. Right movement sends a dash.'
 
   return (
-    <div className="app-shell">
+    <div className="shell">
       <header className="topbar">
-        <div className="brand"><span className="brand-mark" aria-hidden="true">◎</span><span><strong>SignalSpeak</strong><small>Movement to communication</small></span></div>
-        <div className="topbar-right"><span className="prototype-tag">ANT Neuro · Team 4 prototype</span><span className={`source-badge ${source}`}>{badgeText}</span></div>
-      </header>
-      <main>
-        <div className="intro-row">
-          <div><p className="eyebrow">Communication interface</p><h1>Make a movement.<br /><em>Make yourself heard.</em></h1></div>
-          <p className="intro-note">A detected movement becomes a phrase or message. Choose a mode, then watch the signal become an action.</p>
+        <div className="topbar-inner">
+          <h1 className="brand"><AudioLines size={20} aria-hidden="true" />SignalSpeak</h1>
+          <span className="brand-context">ANT Neuro <span aria-hidden="true">/</span> Team 04</span>
+          <div className="source-control">
+            <span className={signalConnected ? 'connection receiving' : 'connection'} role="status">
+              <span className="status-dot" />{sourceStatus}
+            </span>
+            <label className="source-select">
+              <span className="sr-only">Input source</span>
+              <select value={source} onChange={(event) => setSource(event.target.value as Source)}>
+                <option value="live">Live EEG</option>
+                <option value="replay">Recorded replay</option>
+                <option value="manual">Manual test</option>
+              </select>
+              <ChevronDown size={14} aria-hidden="true" />
+            </label>
+          </div>
         </div>
-        <div className="workspace">
-          <section className="main-panel" aria-label="Communication workspace">
-            <div className="mode-tabs" role="group" aria-label="Communication mode">
-              <button aria-pressed={mode === 'phrases'} className={mode === 'phrases' ? 'active' : ''} onClick={() => setMode('phrases')}>Phrase board <span>Reliable path</span></button>
-              <button aria-pressed={mode === 'morse'} className={mode === 'morse' ? 'active' : ''} onClick={() => setMode('morse')}>Morse text <span>Experimental</span></button>
+      </header>
+
+      <main className="workspace">
+        <div className="work-grid">
+          <section className="panel composer" aria-labelledby="composer-heading">
+            <div className="panel-heading">
+              <h2 id="composer-heading">Message</h2>
             </div>
-            <div className="message-box" aria-live="polite">
-              <div className="section-caption"><span>YOUR MESSAGE</span><span>{mode === 'phrases' ? 'Phrase selection' : 'Decoder output'}</span></div>
-              <div className={`message-text ${displayText ? '' : 'placeholder'}`}>{displayText || (mode === 'phrases' ? 'Choose a phrase with one movement' : 'Decoded text will appear here')}</div>
-              <div className="message-actions">
-                <button className="primary-action" disabled={!displayText} onClick={() => speak(displayText)}>▶ Speak message</button>
-                <button className="secondary-action" disabled={!displayText} onClick={() => mode === 'phrases' ? setSelectedPhrase('') : backspaceMorse()}>{mode === 'phrases' ? 'Undo selection' : 'Backspace'}</button>
-                <button className="secondary-action" disabled={!displayText && !pendingSymbols} onClick={clearMessage}>Clear</button>
-              </div>
-              <p className="speech-status" role="status">{speechMessage || (speechSupported ? 'Speech plays through this device.' : 'Speech synthesis is unavailable in this browser.')}</p>
+
+            <div className="segmented composer-tabs" role="group" aria-label="Message mode">
+              <button type="button" aria-pressed={mode === 'morse'} onClick={() => selectMode('morse')}>
+                <Keyboard size={16} aria-hidden="true" /> Morse
+              </button>
+              <button type="button" aria-pressed={mode === 'phrases'} onClick={() => selectMode('phrases')}>
+                <List size={16} aria-hidden="true" /> Phrase board
+              </button>
             </div>
-            {mode === 'phrases' ? (
-              <div className="phrase-area">
-                <div className="area-heading"><div><h2>Phrase board</h2><p>The outline moves automatically. One detected movement selects it.</p></div><div className="scan-state">{paused ? 'SCAN PAUSED' : 'SCANNING'}</div></div>
-                <div className="phrase-grid">
-                  {PHRASES.map((phrase, index) => <button key={phrase.text} disabled={source !== 'manual'} className={`phrase-tile ${index === scanIndex && !paused ? 'scanning' : ''} ${selectedPhrase === phrase.text ? 'selected' : ''}`} onClick={() => { setSelectedPhrase(phrase.text); setPaused(true); addTrail(`Selected manually: “${phrase.text}”`) }}><strong>{phrase.text}</strong><small>{phrase.hint}</small></button>)}
+
+            <div className="spotlight">
+              {mode === 'morse' && (
+                <div className="written">
+                  <div className="spotlight-label">Morse input</div>
+                  <p className={symbols ? 'morse-text' : 'morse-text placeholder'}>{symbols || 'Waiting for dots and dashes'}</p>
                 </div>
-                <div className="scan-controls"><button onClick={() => setPaused((value) => !value)}>{paused ? 'Resume scan' : 'Pause scan'}</button><label htmlFor="scan-speed">Scan speed <strong>{(scanMs / 1000).toFixed(1)}s</strong></label><input id="scan-speed" type="range" min="700" max="3000" step="100" value={scanMs} onChange={(event) => setScanMs(Number(event.target.value))} /></div>
+              )}
+              <div className="translation">
+                <div className="spotlight-label">{mode === 'morse' ? 'Translation' : 'Selected phrase'}</div>
+                <p className={output ? 'output' : 'output placeholder'} aria-live="polite">
+                  {output || (mode === 'morse' ? 'Your message appears here.' : 'Select a phrase to speak.')}
+                </p>
+              </div>
+              <div className="spotlight-actions">
+                <button type="button" className="primary-button" disabled={!output || !speechSupported} onClick={() => speak(output)}>
+                  <Volume2 size={17} aria-hidden="true" /> Speak message
+                </button>
+                <button type="button" className="icon-button" disabled={!hasEditContent} onClick={() => edit('backspace')} aria-label={mode === 'morse' ? 'Backspace' : 'Undo phrase selection'} title={mode === 'morse' ? 'Backspace' : 'Undo selection'}>
+                  <Delete size={18} aria-hidden="true" />
+                </button>
+                <button type="button" className="icon-button" disabled={!hasEditContent} onClick={() => edit('clear')} aria-label="Clear message" title="Clear message">
+                  <Trash2 size={17} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+
+            {mode === 'morse' ? (
+              <div className="mode-controls">
+                <div className="mode-meta">
+                  <span role="status">{speechState || (!speechSupported ? 'Speech unavailable in this browser' : morse.decoder_state)}</span>
+                  <label className="check">
+                    <input type="checkbox" checked={autoSpeak} onChange={(event) => {
+                      setAutoSpeak(event.target.checked)
+                      if (!event.target.checked && speechSupported) window.speechSynthesis.cancel()
+                    }} disabled={!speechSupported} />
+                    Auto-speak words
+                  </label>
+                </div>
+                {source === 'manual' && manualDecoder
+                  ? <MorseKeys decoder={manualDecoder} />
+                  : <p className="mode-hint">{morseHint}</p>}
+                <details className="morse-reference">
+                  <summary>Morse reference</summary>
+                  <dl>
+                    {morseReference.map(([sequence, letter]) => (
+                      <div key={letter}>
+                        <dt>{letter}</dt>
+                        <dd aria-label={Array.from(sequence, (symbol) => symbol === '.' ? 'dot' : 'dash').join(' ')}>
+                          {sequence.replaceAll('.', '·').replaceAll('-', '−')}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </details>
               </div>
             ) : (
-              <div className="morse-area">
-                <div className="area-heading"><div><h2>Morse text</h2><p>The teammate’s decoder supplies symbols and text.</p></div><div className="experimental-tag">EXPERIMENTAL</div></div>
-                <div className="morse-readout"><div><span>Current symbols</span><strong>{pendingSymbols || '—'}</strong></div><div><span>Decoder state</span><strong>{decoderState}</strong></div></div>
-                {source === 'manual' && <button className="sample-button" onClick={() => eventHandlerRef.current({ type: 'decoder_update', source: 'manual', timestamp_ms: Date.now(), pending_symbols: '.-', text: 'A', decoder_state: 'Sample decoder event' })}>Load a labeled sample decoder event</button>}
+              <div className="mode-controls">
+                <div className="phrase-grid">
+                  {phrases.map((value, index) => (
+                    <button type="button" key={value} aria-pressed={phrase === value}
+                      className={scanIndex === index && !paused ? 'is-scanning' : ''}
+                      aria-disabled={source !== 'manual'}
+                      onClick={() => { if (source === 'manual') selectPhrase(value) }}>
+                      <span className="phrase-index">{String(index + 1).padStart(2, '0')}</span>{value}
+                    </button>
+                  ))}
+                </div>
+                <div className="phrase-controls">
+                  <button type="button" className="quiet-button" onClick={() => setPaused(!paused)}>
+                    {paused ? <Play size={14} aria-hidden="true" /> : <Pause size={14} aria-hidden="true" />}
+                    {paused ? 'Resume scan' : 'Pause scan'}
+                  </button>
+                  {source === 'manual' && <button type="button" className="quiet-button" onClick={selectHighlighted} disabled={paused}>Select highlight</button>}
+                  <label className="scan-speed">Scan <input aria-label="Seconds per phrase" type="range" min="700" max="3000" step="100" value={scanMs} onChange={(event) => setScanMs(Number(event.target.value))} /><span>{(scanMs / 1000).toFixed(1)} s</span></label>
+                </div>
+                {speechState && <p className="mode-hint" role="status">{speechState}</p>}
               </div>
             )}
           </section>
-          <aside className="signal-panel" aria-label="Input status">
-            <div className="signal-header"><span className="signal-icon" aria-hidden="true">◉</span><div><h2>Input signal</h2><p>{sourceDetail}</p></div></div>
-            <div className="source-picker" role="group" aria-label="Input source">
-              {(['manual', 'live', 'replay'] as Source[]).map((option) => <button key={option} className={source === option ? 'chosen' : ''} aria-pressed={source === option} onClick={() => selectSource(option)}>{option === 'manual' ? 'Manual' : option === 'live' ? 'Live EEG' : 'Replay'}</button>)}
-            </div>
-            <div className={`connection-status ${connection}`} role="status"><span className="status-dot" aria-hidden="true" /><div><strong>{source === 'manual' ? 'Manual test ready' : connection === 'connected' ? 'EEG stream connected' : connection === 'waiting' ? 'Waiting for stream' : 'Stream disconnected'}</strong><p>{connectionMessage}</p></div></div>
-            {source === 'manual' && <div className="manual-control"><button onClick={manualMovement}>Trigger one movement</button><p>Press Space when focus is outside a control.</p></div>}
-            <div className="signal-metrics"><div><span>Last movement</span><strong>{movement}</strong></div><div><span>Confidence</span><strong>{confidence === null ? 'Not provided' : `${Math.round(confidence * 100)}%`}</strong></div><div><span>Last event</span><strong>{formatTime(lastEventAt)}</strong></div><div><span>Signal latency</span><strong>{latency === null ? '—' : `${Math.round(latency)} ms`}</strong></div></div>
-            <div className="event-trail"><h3>What happened</h3><ol>{trail.map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}</ol></div>
-            <p className="disclosure">Research prototype. Manual and replay inputs are visibly labeled; no clinical performance is claimed.</p>
-          </aside>
+
+          <SignalPanel channels={channels} connected={signalConnected} source={source} />
         </div>
+
+        <section className="panel session" aria-labelledby="session-heading">
+          <div className="session-status">
+            <div className="panel-heading">
+              <div><h2 id="session-heading">Session</h2><p>{source === 'manual' ? 'Manual input is active' : bridgeState}</p></div>
+            </div>
+            <dl className="metrics">
+              <div><dt>Movement decoder</dt><dd>{source === 'manual' ? 'Manual' : decoderConnected ? 'Receiving' : 'Waiting'}</dd></div>
+              <div><dt>Last movement</dt><dd>{movement || '—'}</dd></div>
+              <div><dt>Confidence</dt><dd>{confidence === null ? '—' : `${Math.round(confidence * 100)}%`}</dd></div>
+              <div><dt>Last decoder latency</dt><dd>{latency === null ? '—' : `${Math.round(latency)} ms`}</dd></div>
+            </dl>
+          </div>
+          <div className="session-activity">
+            <div className="activity-heading"><Activity size={16} aria-hidden="true" /><h3>Recent activity</h3></div>
+            {activity.length
+              ? <ol>{activity.map(({ text, time, id }) => <li key={id}><time dateTime={new Date(time).toISOString()}>{formatTime(time)}</time><span>{text}</span></li>)}</ol>
+              : <p>Movement, phrase selections, and speech will appear here.</p>}
+          </div>
+        </section>
+
+        <footer>ANT Neuro · Research prototype</footer>
       </main>
     </div>
   )
 }
 
-export default App
+export default function App() {
+  const [source, setSource] = useState<Source>('live')
+  const [mode, setMode] = useState<Mode>('morse')
+  return <Workspace key={source} source={source} setSource={setSource} mode={mode} setMode={setMode} />
+}

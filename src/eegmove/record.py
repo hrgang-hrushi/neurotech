@@ -173,6 +173,7 @@ def save(out: Path, cues: list[dict], capture: Capture | None, lsl_t0: float | N
         offset = (lsl_t0 or stamps[0]) - stamps[0]
         np.savez(out.with_suffix(".npz"), eeg=eeg, timestamps=stamps,
                  sfreq=capture.inlet.sfreq, channels=np.array(capture.inlet.channels),
+                 units=np.array([unit or "" for unit in capture.inlet.units]),
                  cue_onset_s=np.array([c["onset_s"] + offset for c in cues]),
                  cue_duration_s=np.array([c["duration_s"] for c in cues]),
                  cue_label=np.array([c["label"] for c in cues]))
