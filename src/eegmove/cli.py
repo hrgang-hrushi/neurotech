@@ -143,13 +143,17 @@ def cmd_record(args) -> int:
 def cmd_calibrate(args) -> int:
     import torch
 
-    from .datasets import recording_channels, recording_movement
+    from .datasets import recording_channels, recording_movement, resolve_movement
     from .train import calibrate, latest_checkpoint
     from .verdict import session_path
 
     recording = Path(args.recording)
     schedule = Path(args.schedule) if args.schedule else None
-    movement = args.mode or recording_movement(recording, schedule)
+    try:
+        movement = resolve_movement(recording_movement(recording, schedule), args.mode)
+    except ValueError as error:
+        print(f"ERROR: {error}")
+        return 2
     if movement == "unknown":
         print("WARNING: this recording has no mode, so it can't earn a GO. Pass --mode.")
     if args.pretrained == "none":
@@ -167,9 +171,14 @@ def cmd_calibrate(args) -> int:
 
 def cmd_check(args) -> int:
     from .check import run_check
+    from .verdict import Refused
 
-    record = run_check(Path(args.model), stream=args.stream, baseline_s=args.baseline,
-                       rest_s=args.rest, n_cues=args.cues, threshold=args.threshold)
+    try:
+        record = run_check(Path(args.model), stream=args.stream, baseline_s=args.baseline,
+                           rest_s=args.rest, n_cues=args.cues, threshold=args.threshold)
+    except Refused as error:
+        print(f"ERROR: {error}")
+        return 2
     return 0 if record["go"] else 3
 
 

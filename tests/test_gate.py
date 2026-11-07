@@ -123,16 +123,19 @@ import socket  # noqa: E402
 import joblib  # noqa: E402
 
 from eegmove import typing_app  # noqa: E402
-from eegmove.check import collect_rest, run_check, score_cues, summarize_rest  # noqa: E402
-from eegmove.datasets import load_recording  # noqa: E402
-from eegmove.live import Debouncer, LiveSession, WindowDecider  # noqa: E402
+from eegmove import live, verdict  # noqa: E402
+from eegmove.check import (build_check_cues, collect_rest, run_check, score_cues,  # noqa: E402
+                           summarize_rest)
+from eegmove.cli import main  # noqa: E402
+from eegmove.datasets import load_recording, resolve_movement  # noqa: E402
+from eegmove.live import MORSE_DEBOUNCE, Debouncer, LiveSession, WindowDecider  # noqa: E402
 from eegmove.models import SessionModel, make_riemann  # noqa: E402
 from eegmove.morse import MorseTyper  # noqa: E402
-from eegmove.quality import WindowGate  # noqa: E402
+from eegmove.quality import SnrMonitor, WindowGate  # noqa: E402
 from eegmove.record import write_recording  # noqa: E402
 from eegmove.train import calibrate  # noqa: E402
-from eegmove.verdict import (GoRule, Refused, choose_model, judge, load_verdict, read_attempts,  # noqa: E402
-                             save_live, save_offline, session_path)
+from eegmove.verdict import (GoRule, Refused, begin_attempt, choose_model, judge,  # noqa: E402
+                             load_verdict, read_attempts, save_live, save_offline, session_path)
 from synthetic import CHANNELS_24, FakeInlet, write_motor_recording  # noqa: E402
 
 CLASSES = ["rest", "left", "right"]
@@ -179,7 +182,8 @@ def test_go_rule_boundaries(change, expected):
 @pytest.mark.parametrize("change,expected", [
     ({"false_per_min": 0.5}, True), ({"false_per_min": 0.51}, False),
     ({"correct": 17}, True), ({"correct": 16}, False),
-    ({"clean_s": 119.75, "false_per_min": 0.0}, False), ({"cues": 19, "correct": 19}, False)])
+    ({"clean_s": 119.75, "false_per_min": 0.0}, False), ({"cues": 19, "correct": 19}, False),
+    ({"cues": 40, "correct": 17}, False), ({"cues": 200, "correct": 100}, False)])
 def test_live_rule_boundaries(change, expected):
     assert judge(GOOD_OFFLINE, {**GOOD_LIVE, **change}, "imagined")[0] is expected
 
@@ -286,13 +290,231 @@ def test_recalibrating_clears_the_verdict(tmp_path):
 
 def test_attempts_survive_recalibrating(tmp_path):
     path = approve(tmp_path, "imagined")
-    save_live(path, GOOD_LIVE)
-    assert read_attempts("imagined", tmp_path) == 2
+    begin_attempt(path)
+    assert begin_attempt(path) == 2
     path.write_bytes(b"a new model")
     save_offline(path, "imagined", "riemann", GOOD_SCORES)
-    save_live(path, GOOD_LIVE)
+    assert begin_attempt(path) == 3
     assert read_attempts("imagined", tmp_path) == 3
     assert read_attempts("real", tmp_path) == 0
+
+
+def test_stopping_a_check_still_counts_the_attempt(tmp_path):
+    path = approve(tmp_path, "imagined", live=None)
+
+    class Stopped(StuckSession):
+        def collect_baseline(self, seconds):
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_check(path, session=Stopped(None))
+    assert read_attempts("imagined", tmp_path) == 1
+
+
+def test_check_refuses_before_it_starts_without_a_calibration(tmp_path):
+    (tmp_path / "m.joblib").write_bytes(b"model")
+    with pytest.raises(Refused, match="calibrate"):
+        run_check(tmp_path / "m.joblib", session=StuckSession(None))
+
+
+def test_a_changed_verdict_file_cannot_grant_a_go(tmp_path):
+    path = approve(tmp_path, "imagined", BAD_SCORES)
+    file = path.with_suffix(".verdict.json")
+    file.write_text(file.read_text().replace('"go": false', '"go": true'))
+    with pytest.raises(Refused):
+        choose_model(tmp_path)
+
+
+def test_a_recording_cannot_be_relabelled():
+    assert resolve_movement("imagined", None) == "imagined"
+    assert resolve_movement("unknown", "real") == "real"
+    with pytest.raises(ValueError, match="real"):
+        resolve_movement("real", "imagined")
+
+
+def test_calibrate_command_refuses_a_relabelled_recording(tmp_path, capsys):
+    path = write_motor_recording(tmp_path / "r.npz", 0.9, movement="real", per_class=2)
+    assert main(["calibrate", str(path), "--pretrained", "none", "--mode", "imagined"]) == 2
+    assert "can't be calibrated as imagined" in capsys.readouterr().out
+
+
+def test_live_command_refuses_with_no_approved_model(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(verdict, "ARTIFACT_DIR", tmp_path)
+    assert main(["live"]) == 2
+    assert "No model may type" in capsys.readouterr().out
+
+
+class TypingStream:
+    """Plays a whole check: quiet rest, then one event for each cue it is shown."""
+
+    movement, source, threshold = "imagined", "eeg", 0.6
+
+    def __init__(self, clock, wrong=0):
+        self.clock, self.wrong, self.pending, self.printed = clock, wrong, None, []
+
+    def collect_baseline(self, seconds):
+        return True
+
+    def flush(self):
+        pass
+
+    def signal_strength(self):
+        return {"baseline_db": 3.0, "current_db": 2.5, "region": "C3/C4"}
+
+    def say(self, text):
+        self.printed.append(text)
+        for label in ("LEFT", "RIGHT"):
+            if f"{label} HAND" in text:
+                self.pending = label.lower()
+                if self.wrong:
+                    self.wrong -= 1
+                    self.pending = {"left": "right", "right": "left"}[self.pending]
+
+    def decode(self):
+        while True:
+            self.clock.t += 0.25
+            event, self.pending = self.pending, None
+            yield {"ok": True, "event": event, "step_s": 0.25, "lsl_time": self.clock.t,
+                   "latency_ms": 40.0, "warning": "Signal fading" if event else None}
+
+
+class Clock:
+    t = 0.0
+
+    def __call__(self):
+        return self.t
+
+
+@pytest.mark.parametrize("wrong,passes", [(3, True), (4, False)])
+def test_full_check_reaches_the_symbol_rule(tmp_path, wrong, passes):
+    path = approve(tmp_path, "imagined", live=None)
+    clock = Clock()
+    stream = TypingStream(clock, wrong)
+    record = run_check(path, session=stream, now=clock, clock=clock, say=stream.say)
+    assert record["live"]["correct"] == 20 - wrong and record["live"]["cues"] == 20
+    assert record["live"]["clean_s"] == 120.0
+    assert record["go"] is passes
+    assert record["live"]["warnings"] == ["Signal fading"]
+    assert any("Signal strength" in line and "C3/C4" in line for line in stream.printed)
+
+
+def test_each_attempt_gets_a_new_cue_order(tmp_path):
+    path = approve(tmp_path, "imagined", live=None)
+    seeds = set()
+    for _ in range(4):
+        record = run_check(path, session=StuckSession(None), now=ticking(), clock=ticking())
+        seeds.add(record["live"]["seed"])
+    assert len(seeds) == 4
+    assert build_check_cues(20, 1) != build_check_cues(20, 2)
+
+
+def test_decoder_uncertainty_does_not_finish_a_letter():
+    """The whole path, not a hand-set flag: real probabilities through the real debouncer."""
+
+    class Unsure(AlwaysLeft):
+        probs = np.array([[0.05, 0.9, 0.05]])
+
+        def predict_proba(self, aligned):
+            return self.probs
+
+    model = Unsure()
+    step = WindowDecider(model, np.eye(24), WindowGate(rest_windows()),
+                         Debouncer(CLASSES, **MORSE_DEBOUNCE), None)
+    typer = MorseTyper()
+    window = rest_windows(seed=1)[0]
+
+    def feed(seq):
+        typer.feed({"run": "a", "seq": seq, "step_s": 0.25, "source": "eeg", **step.step(window)})
+
+    for seq in range(20):
+        feed(seq)
+    assert typer.sequence == "."
+    model.probs = np.array([[0.45, 0.30, 0.25]])  # rest leads, below the threshold
+    for seq in range(20, 120):
+        feed(seq)
+    assert typer.sequence == "." and typer.text == ""
+    model.probs = np.array([[0.9, 0.05, 0.05]])
+    for seq in range(120, 140):
+        feed(seq)
+    assert typer.text == "E"
+
+
+def test_fading_signal_reaches_the_typing_screen():
+    healthy = np.fft.irfft(np.fft.rfft(rest_windows(2, 40), axis=-1) * mu_gain(4.0), n=320, axis=-1)
+    monitor = SnrMonitor(healthy, ["C3", "C4"], 160.0)
+
+    class Rest(AlwaysLeft):
+        def predict_proba(self, aligned):
+            return np.array([[0.9, 0.05, 0.05]])
+
+    step = WindowDecider(Rest(), np.eye(2), None, Debouncer(CLASSES, alpha=1.0), monitor)
+    step.gate = WindowGate(rest_windows(2, 40) * 0 + healthy)
+    step.gate.check = lambda window: (True, None)
+    typer = MorseTyper()
+    for seq, window in enumerate(rest_windows(2, 40, seed=5)):
+        typer.feed({"run": "a", "seq": seq, "step_s": 0.25, "source": "eeg", **step.step(window)})
+    assert "fading" in typer.view().warning
+
+
+def mu_gain(gain):
+    freqs = np.fft.rfftfreq(320, 1 / 160.0)
+    return np.where((freqs >= 7) & (freqs <= 14), gain, 1.0)
+
+
+class Recorded:
+    """Stands in for tkinter widgets and remembers what the screen showed."""
+
+    shown = []
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
+
+    def configure(self, **options):
+        Recorded.shown.append(options.get("text"))
+
+    def create_rectangle(self, *args, **kwargs):
+        return 1
+
+
+def test_screen_shows_the_movement_it_is_using(tmp_path, monkeypatch):
+    import tkinter
+
+    approve(tmp_path, "imagined", BAD_SCORES)
+    approve(tmp_path, "real")
+    Recorded.shown = []
+    for name in ("Tk", "Label", "Canvas"):
+        monkeypatch.setattr(tkinter, name, Recorded)
+    assert typing_app.run_app(port=0, artifact_dir=tmp_path) == 0
+    assert any(text and "REAL MOVEMENT FALLBACK" in text for text in Recorded.shown)
+
+
+def test_live_command_sends_messages_and_prints_warnings(tmp_path, monkeypatch, capsys):
+    class Session:
+        movement, sha = "imagined", "abc"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def collect_baseline(self, seconds):
+            return True
+
+        def decode(self):
+            yield None
+            yield {"ok": False, "reason": "burst", "state": "rest", "event": None,
+                   "latency_ms": 1.0, "warning": "Signal fading"}
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(live, "LiveSession", Session)
+    receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    receiver.bind(("127.0.0.1", 0))
+    receiver.settimeout(2)
+    log = live.run_live(tmp_path / "m", port=receiver.getsockname()[1], quiet=True)
+    assert len(log) == 1
+    assert json.loads(receiver.recv(65536))["reason"] == "burst"
+    assert "WARNING: Signal fading" in capsys.readouterr().out
 
 
 def test_threshold_must_match_the_verdict(tmp_path):
@@ -370,6 +592,7 @@ def test_rest_check_times_out_as_no_go(tmp_path, messages):
     save_offline(path, "imagined", "riemann", GOOD_SCORES)
     record = run_check(path, session=StuckSession(messages), now=ticking(), clock=ticking())
     assert not record["go"]
+    assert read_attempts("imagined", tmp_path) == 1
     assert record["live"]["clean_s"] == 0.0 and record["live"]["cues"] == 0
     assert any("clean rest" in r for r in record["reasons"])
 

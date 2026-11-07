@@ -103,6 +103,7 @@ def imagined_files(subjects) -> bool:
 def test_real_imagined_physionet_runs_through_gate():
     cfg = SignalConfig()
     channels = list(ASSUMED_MONTAGE)
+    scores = []
     for subject in (1, 2, 3):
         data = load_physionet([subject], channels, CLASSES, cfg, imagined_only=True)
         rest = baseline_of(data, 20)
@@ -116,7 +117,9 @@ def test_real_imagined_physionet_runs_through_gate():
         aligned = kept.select(np.ones(len(kept), bool))
         aligned.X = apply_whitening(kept.X, whitening)
         result = evaluate_session(aligned, cfg, None, folds=3, use_net=False)["riemann"]
-        assert 0.0 <= result["left_right"] <= 1.0
+        scores.append(result["left_right"])
         go, reasons = judge({"left_right": result["left_right"],
                              "three_class": result["balanced_raw"]}, None, "imagined")
         assert not go and "no live check yet" in reasons
+    print(f"Imagined left vs right by subject: {scores}")
+    assert np.mean(scores) > 0.5, "real imagined movement should beat chance on average"

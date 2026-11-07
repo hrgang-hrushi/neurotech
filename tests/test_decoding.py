@@ -3,7 +3,7 @@ import torch
 
 from eegmove.config import SignalConfig
 from eegmove.datasets import Windows
-from eegmove.live import Debouncer, RingBuffer
+from eegmove.live import MORSE_DEBOUNCE, Debouncer, RingBuffer
 from eegmove.models import ShallowNet, TrainConfig, _augment, fit_net, make_riemann, net_probs
 from eegmove.record import build_schedule
 from eegmove.train import evaluate_session
@@ -149,10 +149,20 @@ def test_a_confirmed_hold_never_releases():
     assert debounce.state == "left"
 
 
-def test_rest_top_needs_rest_to_lead_not_just_idle():
+def test_rest_only_counts_when_confident():
     debounce = morse_debouncer(release_after=2)
     play(debounce, (LEFT, 4), (np.array([0.2, 0.45, 0.35]), 3))
-    assert debounce.state == "rest" and not debounce.rest_top
+    assert debounce.state == "rest" and not debounce.rest_sure
+    play(debounce, (UNSURE, 1))  # rest leads here, but below the threshold
+    assert not debounce.rest_sure
+    play(debounce, (REST, 1))
+    assert debounce.rest_sure
+
+
+def test_a_confident_rebound_never_releases_into_a_symbol():
+    debounce = morse_debouncer(**MORSE_DEBOUNCE)
+    assert play(debounce, (LEFT, 6), (RIGHT, 60)) == ["left"]
+    assert debounce.state == "left"
 
 
 def test_rejected_window_clears_the_streak():

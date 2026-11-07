@@ -123,6 +123,31 @@ def test_existing_recording_is_not_overwritten(session, tmp_path):
     assert (tmp_path / "imagined.npz").read_bytes() == b"keep me"
 
 
+def test_leftover_snapshot_is_not_overwritten(session, tmp_path):
+    snapshot = snapshot_path(tmp_path / "imagined")
+    snapshot.write_bytes(b"crash data")
+    with pytest.raises(FileExistsError, match="didn't finish"):
+        session()
+    assert snapshot.read_bytes() == b"crash data"
+
+
+def test_failed_snapshot_keeps_sampling(tmp_path, capsys):
+    sfreq = 160.0
+    blocked = tmp_path / "a-file"
+    blocked.write_text("not a folder")
+    chunks = [(np.zeros((16, 2)), np.arange(16) / sfreq + i) for i in range(5)]
+    capture = Capture(None, inlet=FakeInlet(chunks=chunks), snapshot=blocked / "s.npz",
+                      snapshot_every_s=0.0)
+    capture.set_session([{"onset_s": 0.0, "duration_s": 1.0, "label": "rest"}], 0.0, "real")
+    capture.start()
+    capture.join(timeout=0.5)
+    capture.running = False
+    capture.join(timeout=2)
+    assert capture.error is None and capture.snapshot_error is not None
+    assert len(capture.drain()[0]) == 80
+    assert capsys.readouterr().out.count("crash snapshot failed") == 1
+
+
 def test_mode_is_saved_in_recording(tmp_path):
     capture = FakeCapture()
     cues = build_schedule(["rest", "left"], 1, 1, 0, baseline_s=1.0)

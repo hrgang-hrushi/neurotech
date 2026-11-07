@@ -76,7 +76,7 @@ def judge(offline: dict | None, live: dict | None, movement: str,
         elif live["false_per_min"] > rule.false_per_min:
             reasons.append(f"{live['false_per_min']:.2f} false activations a minute, limit is "
                            f"{rule.false_per_min}")
-        if live.get("cues", 0) < rule.cues or live.get("correct", 0) < rule.symbols:
+        if live.get("cues", 0) != rule.cues or live.get("correct", 0) < rule.symbols:
             reasons.append(f"{live.get('correct', 0)} of {live.get('cues', 0)} live symbols "
                            f"correct, needs {rule.symbols} of {rule.cues}")
     return not reasons, reasons
@@ -117,8 +117,8 @@ def read_attempts(movement: str, artifact_dir: Path) -> int:
         return 0
 
 
-def save_live(model_path: Path, live: dict) -> dict:
-    """Add a live check to a calibrated model's verdict, and count the attempt."""
+def begin_attempt(model_path: Path) -> int:
+    """Count a live check before it starts, so stopping a bad run doesn't erase it."""
     record = load_verdict(model_path)
     if record is None:
         raise Refused(f"{model_path} has no matching verdict. Run: eegmove calibrate")
@@ -129,6 +129,14 @@ def save_live(model_path: Path, live: dict) -> dict:
         counts = {}
     counts[record["movement"]] = counts.get(record["movement"], 0) + 1
     attempts_path(folder).write_text(json.dumps(counts))
+    return counts[record["movement"]]
+
+
+def save_live(model_path: Path, live: dict) -> dict:
+    """Add a finished live check to a calibrated model's verdict."""
+    record = load_verdict(model_path)
+    if record is None:
+        raise Refused(f"{model_path} has no matching verdict. Run: eegmove calibrate")
     record["live"] = live
     return _write(model_path, record)
 
@@ -144,8 +152,9 @@ def choose_model(artifact_dir: Path | None = None) -> Choice:
         record = load_verdict(path) if path.exists() else None
         if record is None:
             reasons.append(f"{movement}: no verdict for {path.name}")
-        elif record["go"] and record["movement"] == movement:
+            continue
+        go, why = judge(record["offline"], record["live"], record["movement"])  # today's rule
+        if go and record["movement"] == movement:
             return Choice(path, movement, banner, record["sha"], record["live"]["threshold"])
-        else:
-            reasons.append(f"{movement}: " + "; ".join(record["reasons"] or ["not approved"]))
+        reasons.append(f"{movement}: " + "; ".join(why or ["wrong movement in this file"]))
     raise Refused("No model may type.\n  " + "\n  ".join(reasons))

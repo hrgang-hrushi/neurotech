@@ -39,8 +39,9 @@ This is a prototype, and nothing here shows that it works for patients.
 | Letter gap | 3 s of rest after re-arming |
 | Word gap | 7 s of rest after re-arming |
 
-A new symbol needs a return to rest, which blocks a rebound from firing the opposite symbol. An
-uncertain stretch never finishes a letter. Expect about 6 to 8 seconds per symbol by estimate.
+A new symbol needs a return to rest, which blocks a rebound from firing the opposite symbol. The
+letter gap only counts confident rest, so an uncertain stretch never finishes a letter. It shows
+UNCERTAIN instead, and if rest stays unsure the letter waits. Expect about 6 to 8 seconds per symbol by estimate.
 
 ## Where it lives
 

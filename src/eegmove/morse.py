@@ -7,6 +7,7 @@ clock on the wall, so a stalled stream can't look like a pause and end a letter.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 
 from .words import WordList
@@ -20,6 +21,7 @@ MORSE = {
 }
 DELETE, ACCEPT = "----", "..--"  # neither is a letter
 MAX_SEQUENCE = 4
+MAX_STEP_S = 1.0  # a message claiming more would end a letter in one go
 SOURCE_BANNERS = {"eeg": None, "replay": "REPLAY, NOT LIVE EEG", "sim": "SIMULATED INPUT"}
 REQUIRED = {"run": str, "seq": int, "ok": bool, "rest": bool, "step_s": (int, float),
             "state": str, "source": str}
@@ -83,8 +85,14 @@ class MorseTyper:
         self._apply(message)
 
     def _valid(self, message) -> bool:
-        return isinstance(message, dict) and all(
-            isinstance(message.get(key), kind) for key, kind in REQUIRED.items())
+        if not isinstance(message, dict) or not all(
+                isinstance(message.get(key), kind) for key, kind in REQUIRED.items()):
+            return False
+        step = message["step_s"]
+        return (not isinstance(message["seq"], bool)
+                and not isinstance(step, bool) and math.isfinite(step) and 0 < step <= MAX_STEP_S
+                and isinstance(message.get("event"), (str, type(None)))
+                and isinstance(message.get("warning"), (str, type(None))))
 
     def _reject(self, reason: str) -> None:
         self.bad_messages += 1

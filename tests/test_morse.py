@@ -215,9 +215,17 @@ def test_wrong_model_changes_nothing():
     assert typer.sequence == "."
 
 
+def message_with(**change) -> bytes:
+    return json.dumps({"run": "a", "seq": 0, "ok": True, "rest": True, "step_s": 0.25,
+                       "state": "rest", "event": None, "source": "eeg", **change}).encode()
+
+
 @pytest.mark.parametrize("data", [b"not json", b"[1, 2]", b"\xff\xfe", b'{"run": 3}',
                                   b'{"run":"a","seq":"x","ok":true,"rest":true,"step_s":0.25,'
-                                  b'"state":"rest","source":"eeg"}'])
+                                  b'"state":"rest","source":"eeg"}',
+                                  message_with(event=[]), message_with(step_s=float("nan")),
+                                  message_with(step_s=1e9), message_with(step_s=0),
+                                  message_with(seq=True), message_with(warning=3)])
 def test_malformed_message_is_ignored_loudly(typed, data):
     typer, _ = typed
     typer.feed_raw(data)

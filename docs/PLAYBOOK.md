@@ -101,7 +101,7 @@ this realigns the model without any labels, so start `live` before you present. 
 a new model, which needs a new check. `type` refuses a decoder running any model or threshold other
 than the approved one, and shows which movement it's using.
 
-If `live` warns about a fading signal, stop and ask ANT to check the impedances.
+If `live` or the typing screen warns about a fading signal, stop and ask ANT to check the impedances.
 
 ## If the stream won't connect
 

@@ -3,6 +3,7 @@ import time
 import uuid
 
 import numpy as np
+import pylsl
 
 from eegmove.cli import main
 from eegmove.streaming import EegInlet, replay
@@ -40,3 +41,13 @@ def test_replay_command_runs(monkeypatch):
     monkeypatch.setattr("eegmove.streaming.replay", lambda *args, **kwargs: None)
     assert main(["replay", "--run", "4"]) == 0
     assert played == [4]
+
+
+def test_stream_source_says_replay_or_live():
+    name = f"test-{uuid.uuid4().hex[:8]}"
+    outlets = {}
+    for suffix, source_id in (("a", f"{name}-replay"), ("b", "amplifier-1234")):
+        info = pylsl.StreamInfo(f"{name}{suffix}", "EEG", 2, 100.0, pylsl.cf_float32, source_id)
+        outlets[suffix] = pylsl.StreamOutlet(info)
+    assert EegInlet(name=f"{name}a", timeout=8).source == "replay"
+    assert EegInlet(name=f"{name}b", timeout=8).source == "eeg"

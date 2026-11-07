@@ -16,7 +16,7 @@ import pylsl
 
 from .live import MORSE_DEBOUNCE, LiveSession
 from .record import prompts_for
-from .verdict import GoRule, read_attempts, save_live
+from .verdict import GoRule, begin_attempt, save_live
 
 CUE_S = 4.0
 SLOT_S = (8.5, 9.5)  # jittered so the next cue can't be anticipated
@@ -89,48 +89,54 @@ def collect_until(session, stop: float, messages: list[dict], clock) -> None:
 
 
 def run_check(model_path: Path, stream: str | None = None, baseline_s: float = 60.0,
-              rest_s: float = 120.0, n_cues: int = 20, threshold: float = 0.6, seed: int = 4,
-              session=None, deadline_s: float = REST_DEADLINE_S, now=time.monotonic,
-              clock=pylsl.local_clock) -> dict:
+              rest_s: float = 120.0, n_cues: int = 20, threshold: float = 0.6,
+              seed: int | None = None, session=None, deadline_s: float = REST_DEADLINE_S,
+              now=time.monotonic, clock=pylsl.local_clock, say=print) -> dict:
+    attempt = begin_attempt(model_path)
+    seed = random.SystemRandom().randrange(2**31) if seed is None else seed  # new order each try
     session = session or LiveSession(model_path, stream=stream, threshold=threshold)
     prompts = prompts_for(session.movement if session.movement != "unknown" else "real")
-    print(f"Baseline: sit still and relax for {baseline_s:.0f}s ...")
+    say(f"Attempt {attempt} for {session.movement} movement.")
+    say(f"Baseline: sit still and relax for {baseline_s:.0f}s ...")
     session.collect_baseline(baseline_s)
-    print(f"Rest check: stay relaxed for {rest_s:.0f}s of clean signal ...")
+    say(f"Rest check: stay relaxed for {rest_s:.0f}s of clean signal ...")
     session.flush()
-    rest = summarize_rest(collect_rest(session, rest_s, deadline_s, now), rest_s)
-    print(f"  {rest['clean_s']:.0f} s clean, {rest['false_activations']} false activations")
+    rest_messages = collect_rest(session, rest_s, deadline_s, now)
+    rest = summarize_rest(rest_messages, rest_s)
+    say(f"  {rest['clean_s']:.0f} s clean, {rest['false_activations']} false activations")
 
-    result = {"correct": 0, "cues": 0}
+    result, messages = {"correct": 0, "cues": 0}, []
     if rest["clean_s"] >= rest_s:
-        print(f"Symbol check: {n_cues} cues. Follow each one, then relax until the next.")
+        say(f"Symbol check: {n_cues} cues. Follow each one, then relax until the next.")
         session.flush()
-        onsets, messages = [], []
+        onsets = []
         for index, cue in enumerate(build_check_cues(n_cues, seed), 1):
             big, small = prompts[cue.label]
-            print(f"  [{index:2d}/{n_cues}] {big}: {small}")
+            say(f"  [{index:2d}/{n_cues}] {big}: {small}")
             start = clock()
             collect_until(session, start + CUE_S, messages, clock)
-            print("          +")
+            say("          +")
             collect_until(session, start + cue.slot_s, messages, clock)
             onsets.append((cue.label, start, start + cue.slot_s))
         result = score_cues(onsets, messages)
-        print(f"  {result['correct']} of {result['cues']} correct")
+        say(f"  {result['correct']} of {result['cues']} correct")
     else:
-        print("  Not enough clean rest, so the symbol check was skipped.")
+        say("  Not enough clean rest, so the symbol check was skipped.")
 
     strength = session.signal_strength()
     if strength:
-        print(f"Signal strength at rest over {strength['region']}: {strength['db']:.1f} dB "
-              "(mu over noise floor, for your information only)")
+        say(f"Signal strength at rest over {strength['region']}: {strength['baseline_db']:.1f} dB "
+            f"at baseline, {strength['current_db']} dB now (information only, not part of the rule)")
+    warnings = sorted({m["warning"] for m in rest_messages + messages if m.get("warning")})
+    for warning in warnings:
+        say(f"WARNING: {warning}")
     live = {**rest, **result, "source": session.source, "threshold": session.threshold,
-            "debounce": MORSE_DEBOUNCE, "signal_strength": strength}
+            "debounce": MORSE_DEBOUNCE, "signal_strength": strength, "seed": seed,
+            "attempt": attempt, "warnings": warnings}
     record = save_live(model_path, live)
-    attempts = read_attempts(record["movement"], Path(model_path).parent)
-    print(f"Attempt {attempts} for {record['movement']} movement.")
-    print("GO: this model may type." if record["go"] else "NO-GO:")
+    say("GO: this model may type." if record["go"] else "NO-GO:")
     for reason in record["reasons"]:
-        print(f"  - {reason}")
+        say(f"  - {reason}")
     return record
 
 

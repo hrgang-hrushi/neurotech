@@ -186,6 +186,15 @@ def recording_movement(path: Path, schedule: Path | None = None) -> str:
     return "unknown"
 
 
+def resolve_movement(stored: str, requested: str | None) -> str:
+    """Which movement a recording holds. A label can fill a gap, never contradict the file."""
+    if requested is None or requested == stored:
+        return stored
+    if stored != "unknown":
+        raise ValueError(f"This recording is {stored}, so it can't be calibrated as {requested}.")
+    return requested
+
+
 def _select_channels(signal: np.ndarray, labels: list[str], channels: list[str]) -> np.ndarray:
     lookup = {normalize_label(name): i for i, name in enumerate(labels)}
     missing = [c for c in channels if normalize_label(c) not in lookup]

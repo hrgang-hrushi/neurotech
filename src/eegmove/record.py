@@ -116,6 +116,7 @@ class Capture(threading.Thread):
         self.session: tuple[list[dict], float, str] | None = None
         self.last_snapshot = 0.0
         self.error: Exception | None = None
+        self.snapshot_error: Exception | None = None
 
     def set_session(self, cues: list[dict], lsl_t0: float, movement: str) -> None:
         """Start snapshots. Before GO there are no cue times to label the data with."""
@@ -147,9 +148,18 @@ class Capture(threading.Thread):
                 due = time.monotonic() - self.last_snapshot >= self.snapshot_every_s
                 if self.session is not None and due:
                     self.last_snapshot = time.monotonic()
-                    self.write_snapshot()
+                    self._try_snapshot()
         except Exception as error:  # a dead thread must not look like a quiet stream
             self.error = error
+
+    def _try_snapshot(self) -> None:
+        """A full disk must not stop sampling: keep recording, and tell the operator once."""
+        try:
+            self.write_snapshot()
+        except Exception as error:
+            if self.snapshot_error is None:
+                print(f"WARNING: crash snapshot failed, recording continues: {error}")
+            self.snapshot_error = error
 
 
 def run_session(out: Path, classes: list[str], per_class: int, blocks: int, seed: int,
@@ -163,6 +173,9 @@ def run_session(out: Path, classes: list[str], per_class: int, blocks: int, seed
     if target.exists():
         raise FileExistsError(f"{target} already exists, so recording would destroy it. "
                               "Move it, or pass a different --out.")
+    if use_lsl and snapshot_path(out).exists():
+        raise FileExistsError(f"{snapshot_path(out)} is left from a run that didn't finish. It "
+                              "holds real data, so move it before recording again.")
     cues = build_schedule(classes, per_class, blocks, seed, baseline_s)
     minutes = (cues[-1]["onset_s"] + CUE_S) / 60
     print(f"{len(cues)} cues, about {minutes:.1f} minutes including the baseline.")

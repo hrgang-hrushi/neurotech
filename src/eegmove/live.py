@@ -79,13 +79,13 @@ class Debouncer:
         self.smooth = np.full(len(classes), 1 / len(classes))
         self.candidate, self.streak, self.cooldown, self.unconfirmed = None, 0, 0, 0
         self.state = idle if idle in classes else classes[0]
-        self.rest_top = False  # rest leads the smoothed probabilities, however narrowly
+        self.rest_sure = False  # rest is the confident top class, not merely where state fell
 
     def update(self, probs: np.ndarray) -> tuple[str, str | None]:
         self.smooth = self.alpha * probs + (1 - self.alpha) * self.smooth
         top = self.classes[int(self.smooth.argmax())]
         confident = self.smooth.max() >= self.threshold
-        self.rest_top = top == self.idle
+        self.rest_sure = confident and top == self.idle
         self.cooldown = max(0, self.cooldown - 1)
         if confident:
             self.streak = self.streak + 1 if top == self.candidate else 1
@@ -105,7 +105,9 @@ class Debouncer:
         if self.state == self.idle:
             self.unconfirmed = 0
         else:
-            self.unconfirmed = 0 if confident and top == self.state else self.unconfirmed + 1
+            # A confident symbol still confirms a decoder at work, even the opposite one, so
+            # a rebound waits for rest. Only real doubt counts toward freeing the state.
+            self.unconfirmed = 0 if confident and top != self.idle else self.unconfirmed + 1
             if self.release_after is not None and self.unconfirmed >= self.release_after:
                 self.state, self.candidate, self.streak = self.idle, None, 0
                 self.unconfirmed = 0
@@ -113,7 +115,7 @@ class Debouncer:
 
     def hold(self) -> None:
         """Skip an update because its window was rejected: nothing may fire from it."""
-        self.candidate, self.streak, self.rest_top = None, 0, False
+        self.candidate, self.streak, self.rest_sure = None, 0, False
 
 
 class WindowDecider:
@@ -143,7 +145,7 @@ class WindowDecider:
         return {"ok": True, "reason": None,
                 "probs": {c: round(float(p), 3) for c, p in zip(self.model.classes, probs)},
                 "state": state, "event": event,
-                "rest": state == self.debounce.idle and self.debounce.rest_top,
+                "rest": state == self.debounce.idle and self.debounce.rest_sure,
                 "snr_db": None if snr is None else round(snr, 2), "warning": warning}
 
 
@@ -218,7 +220,10 @@ class LiveSession:
     def signal_strength(self) -> dict | None:
         if self.monitor is None:
             return None
-        return {"db": round(self.monitor.baseline_db, 2), "region": self.monitor.region}
+        current = float(np.median(self.monitor.recent)) if self.monitor.recent else None
+        return {"baseline_db": round(self.monitor.baseline_db, 2),
+                "current_db": None if current is None else round(current, 2),
+                "region": self.monitor.region}
 
     def decode(self) -> Iterator[dict | None]:
         """Yield a message per step, or None while waiting, so callers can keep time."""
@@ -250,7 +255,7 @@ def run_live(model_path: Path, host: str = "127.0.0.1", port: int = 9999, stream
     session.collect_baseline(baseline_s)
 
     print(f"Decoding. Sending JSON to udp://{host}:{port}. Ctrl-C stops.")
-    log = []
+    log, shown = [], None
     start = time.time()
     try:
         for message in session.decode():
@@ -260,6 +265,10 @@ def run_live(model_path: Path, host: str = "127.0.0.1", port: int = 9999, stream
                 continue
             sock.sendto(json.dumps(message).encode(), (host, port))
             log.append(message)
+            if message["warning"] != shown:  # printed even when quiet, because it matters
+                shown = message["warning"]
+                if shown:
+                    print(f"WARNING: {shown}")
             if not quiet:
                 if message["ok"]:
                     bars = " ".join(f"{c}:{p:4.2f}" for c, p in message["probs"].items())
