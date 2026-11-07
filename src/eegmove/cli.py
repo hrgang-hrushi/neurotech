@@ -172,7 +172,7 @@ def cmd_live(args) -> int:
 
     run_live(Path(args.model), host=args.host, port=args.port, stream=args.stream,
              baseline_s=args.baseline, duration_s=args.duration, threshold=args.threshold,
-             quiet=args.quiet)
+             quiet=args.quiet, source=args.source)
     return 0
 
 
@@ -260,6 +260,8 @@ def main(argv: list[str] | None = None) -> int:
     p = commands.add_parser("live", help="decode the LSL stream and send JSON over UDP")
     p.add_argument("--model", default=session_model)
     p.add_argument("--stream", help="LSL stream name, if several are visible")
+    p.add_argument("--source", choices=["live", "replay"],
+                   help="declare the source of an external outlet; built-in replay is detected automatically")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=9999)
     p.add_argument("--baseline", type=float, default=60.0, help="seconds of rest before decoding")

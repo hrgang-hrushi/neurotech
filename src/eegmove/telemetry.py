@@ -84,7 +84,7 @@ def channel_frames(inlet: EegInlet, source: str, samples: np.ndarray,
 def run_monitor(stream: str | None = None, source: str = "live", port: int = 9996,
                 duration: float | None = None) -> None:
     inlet = EegInlet(name=stream, dejitter=False)
-    if source == "live" and inlet.source_id.endswith("-replay"):
+    if source == "live" and inlet.is_replay:
         raise ValueError(f"{inlet.name!r} is a replay outlet. Run the monitor with --source replay.")
 
     width = max(2, round(WINDOW_SECONDS * inlet.sfreq))

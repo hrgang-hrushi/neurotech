@@ -95,6 +95,7 @@ websocket.on('connection', (client) => {
 eegSocket.on('message', (raw) => {
   const packet = read(raw)
   if (typeof packet?.state !== 'string' || !packet.probs || typeof packet.probs !== 'object') return
+  if (packet.source !== undefined && packet.source !== source) return
   lastPredictionAt = Date.now()
   if (!decoderConnected) {
     decoderConnected = true

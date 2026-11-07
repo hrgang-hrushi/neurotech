@@ -56,15 +56,18 @@ test('native EEG UDP packets and Morse updates reach the WebSocket with source a
     assert.deepEqual(frame.channels[0].spectrum, signal.spectrum)
     assert.ok(seen.some((event) => event.type === 'eeg_status' && event.connected))
     assert.ok(!seen.some((event) => event.type === 'status' && event.connected))
-    eeg.send(JSON.stringify({
+    const prediction = {
       t: 1.2, probs: { rest: 0.1, left: 0.8, right: 0.1 },
       state: 'left', event: 'left', latency_ms: 40,
-    }), eegPort, '127.0.0.1')
+    }
+    eeg.send(JSON.stringify({ ...prediction, source: 'live', event: 'right' }), eegPort, '127.0.0.1')
+    eeg.send(JSON.stringify({ ...prediction, source: 'replay' }), eegPort, '127.0.0.1')
     await waitFor(() => seen.some((event) => event.type === 'movement_start'))
     const movement = seen.find((event) => event.type === 'movement_start')
     assert.equal(movement.source, 'replay')
     assert.equal(movement.movement, 'left')
     assert.equal(movement.confidence, 0.8)
+    assert.ok(!seen.some((event) => event.type === 'movement_start' && event.movement === 'right'))
     assert.ok(seen.some((event) => event.type === 'status' && event.connected))
     morse.send(JSON.stringify({ pending_symbols: '.-', text: 'A' }), morsePort, '127.0.0.1')
     await waitFor(() => seen.some((event) => event.type === 'decoder_update'))

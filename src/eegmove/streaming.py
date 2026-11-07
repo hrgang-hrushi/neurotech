@@ -61,6 +61,7 @@ class EegInlet:
         info = self.inlet.info(timeout=timeout)
         self.name = info.name()
         self.source_id = info.source_id()
+        self.is_replay = self.source_id.endswith("-replay")
         self.uid = info.uid()
         self.sfreq = float(info.nominal_srate())
         labels = stream_channel_field(info, "label")

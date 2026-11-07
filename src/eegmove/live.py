@@ -78,10 +78,13 @@ class Debouncer:
 
 def run_live(model_path: Path, host: str = "127.0.0.1", port: int = 9999, stream: str | None = None,
              baseline_s: float = 60.0, step_s: float = 0.25, duration_s: float | None = None,
-             threshold: float = 0.6, quiet: bool = False) -> list[dict]:
+             threshold: float = 0.6, quiet: bool = False, source: str | None = None) -> list[dict]:
     model: SessionModel = joblib.load(model_path)
     cfg = model.cfg
     inlet = EegInlet(model.channels, name=stream)
+    if inlet.is_replay and source == "live":
+        raise ValueError(f"{inlet.name!r} is a replay outlet. Omit --source or use --source replay.")
+    source = source or ("replay" if inlet.is_replay else "live")
     pre = StreamPreprocessor(inlet.sfreq, len(model.channels), cfg)
     ring = RingBuffer(len(model.channels), cfg.n_times)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -122,6 +125,7 @@ def run_live(model_path: Path, host: str = "127.0.0.1", port: int = 9999, stream
             state, event = debounce.update(probs)
             latency = (pylsl.local_clock() - stamps[-1]) * 1000 if len(stamps) else float("nan")
             message = {"t": round(time.time() - start, 3),
+                       "source": source,
                        "lsl_time": float(stamps[-1]) if len(stamps) else None,
                        "probs": {c: round(float(p), 3) for c, p in zip(model.classes, probs)},
                        "state": state, "event": event, "latency_ms": round(latency, 1)}

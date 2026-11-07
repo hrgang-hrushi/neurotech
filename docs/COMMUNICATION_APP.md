@@ -14,6 +14,8 @@ npm --prefix web run dev
 
 Open the Vite URL using localhost or 127.0.0.1. **Manual test** works without a headset or bridge. Use the dot and dash buttons or the `.` and `-` keys. Pauses or the **End letter** and **End word** buttons commit the sequence. **Speak message** reads the current text. **Auto-speak words** reads each completed valid word when enabled. Speech uses the browser and its available device voices.
 
+If `eegmove` reports `No module named 'eegmove'` after installation, run it from the repository root with `PYTHONPATH=src uv run eegmove …`. This also works when macOS hides the editable install's `.pth` file from Python.
+
 ## Live EEG
 
 Connect to the ANT network and start the headset's EEG LSL outlet. In separate terminals at the repository root, run the following. Replace `EXACT_LSL_NAME` with the stream name.
@@ -45,14 +47,14 @@ uv run eegmove monitor --stream eego-replay --source replay
 npm --prefix web run bridge -- --source replay
 ```
 
-The first command uses a PhysioNet recording and may need internet to download it once. Use `eegmove replay --recording path/to/session.npz` for a local recording. If you have a matching calibrated movement model, run `uv run eegmove live --stream eego-replay` alongside the monitor. The built-in replay outlet is rejected by the live monitor. Source selection and bridge labels should always reflect the actual data used.
+The first command uses a PhysioNet recording and may need internet to download it once. Use `eegmove replay --recording path/to/session.npz` for a local recording. If you have a matching calibrated movement model, run `uv run eegmove live --stream eego-replay` alongside the monitor. The live monitor rejects the built-in replay outlet. The movement decoder automatically tags this outlet as replay, and the bridge rejects packets tagged with a different source. For an external playback outlet, pass `--source replay` to the movement decoder too. Untagged packets from older decoders inherit the bridge source.
 
 ## Local transport
 
 | Port | Flow |
 | --- | --- |
 | UDP 9996 | Monitor → bridge. Per-electrode waveforms, PSD, channel labels, units, and source. |
-| UDP 9999 | Movement decoder → bridge. Existing `state`, `event`, `probs`, and `latency_ms` JSON. |
+| UDP 9999 | Movement decoder → bridge. `state`, `event`, `probs`, `latency_ms`, and `source` JSON. |
 | WebSocket 8765 | Bridge → browser. Separate telemetry and classifier status, channel frames, movements, and Morse updates. |
 
 The WebSocket defaults to `ws://127.0.0.1:8765`. Override it with `VITE_SIGNAL_WS_URL` if you change the local bridge port. `eegmove listen` and the bridge both bind UDP 9999. The bridge, monitor, and decoder belong on the same laptop.
