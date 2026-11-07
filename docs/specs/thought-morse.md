@@ -261,4 +261,7 @@ requires left vs right to be a stated reason. No fix rounds were needed.
   headset check. Regression was Acceptable because sandbox limits stopped Codex rerunning every test.
   Full audit: [thought-morse-audit.md](thought-morse-audit.md).
 - `uv run pytest` after the fix: 232 passed.
+- Round 2: Overall Fail on test coverage alone, because the headset run hasn't happened. Every other
+  dimension is Acceptable or better, with Review compliance Excellent for the NaN fix. The audit file
+  now holds this round.
 - **Pending the owner:** the headset acceptance run of record, calibrate and check. It can't run here.

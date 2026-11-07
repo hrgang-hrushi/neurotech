@@ -2,20 +2,18 @@
 
 | Dimension | Grade | Notes |
 |-----------|-------|-------|
-| Plan adherence | Fail | Verdict gate accepts nonfinite scores, violating the qualification rule. |
-| Scope discipline | Excellent | Changes remain within scope; replay fix supports required verification. |
-| Test coverage | Fail | Required real-headset acceptance check remains unperformed. |
-| Review compliance | Excellent | Referenced Codex findings have corresponding implementation changes and tests. |
-| Freeze integrity | Excellent | Frozen P1/P2 unchanged in history; owner statements include both risks. No freeze hashes present. |
-| Regression check | Acceptable | 208 passes reported; independent verification limited by sandbox permissions. No EEG files tracked. |
-| Documentation | Excellent | Changed workflows, fallback, timing, and unmeasured headset accuracy are documented. |
-| Test sensitivity | Excellent | Recorded threshold mutation caught on first attempt; mutation absent from committed logic. |
-| **Overall** | **Fail** | |
+| Plan adherence | Acceptable | Implementation follows the spec; deviations are recorded. Hardware acceptance remains open. |
+| Scope discipline | Excellent | Changes stay within scope; the replay fix supports the required rehearsal. |
+| Test coverage | Fail | Required real-headset acceptance run has not occurred. |
+| Review compliance | Excellent | NaN finding addressed with finite/range validation and regression tests. |
+| Freeze integrity | Excellent | Frozen P1/P2 unchanged since initial commit. No hashes present. Owner statements include both risks. |
+| Regression check | Acceptable | Reported 232 passes; independently ran 68 Morse tests. Full rerun blocked by sandbox restrictions. No tracked EEG files found. |
+| Documentation | Excellent | Declared docs describe the workflow, thresholds, fallback, and unverified headset status. |
+| Test sensitivity | Excellent | Recorded realistic threshold mutation caught on first attempt; mutation absent from commit history. |
+| **Overall** | **Fail** | Required hardware acceptance is incomplete. |
 
 ### Commentary
 
-1. **Plan adherence — downgraded to Fail.** In [verdict.py:64](/Users/nathanstough/Neurotech/src/eegmove/verdict.py:64), comparisons with `NaN` silently pass. Supplying `NaN` for both held-out scores and otherwise passing live results returns `(True, [])`. An additional reproduction using mocked file reads confirmed that `load_verdict()` and `choose_model()` accept that record. This demonstrates invalid-verdict handling, not that ordinary calibration currently produces these values. Validate numeric types, finiteness, and ranges before judging; add regression tests covering invalid offline and live metrics.
+1. **Test coverage — downgrade to Fail.** The [run spec](/Users/nathanstough/Neurotech/docs/specs/thought-morse.md:176) requires real-headset recording, calibration, and live checking; its results explicitly leave this pending. Replay and PhysioNet results do not satisfy that criterion. Complete the headset workflow and record the scores, live counts, and resulting verdict.
 
-2. **Test coverage — downgraded to Fail.** The [acceptance criteria](/Users/nathanstough/Neurotech/docs/specs/thought-morse.md:176) require a real-headset run of recording, calibration, and live checking. Results explicitly state this never ran. Replay and PhysioNet results do not satisfy that criterion. Complete the headset workflow and record its results; earning GO is not required to demonstrate that the check works.
-
-3. **Regression check — limited to Acceptable.** Independent testing produced **82 passes**, with one socket test blocked by sandbox permissions and the package-build test deselected. The prescribed `uv` command could not initialize its cache; broader direct execution encountered Matplotlib’s writable-cache requirement. These are environment restrictions, not demonstrated regressions. The reported **208 passed, zero skipped** result therefore remains only partially independently verified.
+2. **Regression check — limited to Acceptable.** Independent verification produced **68 passed, 2 deselected** for Morse tests excluding wheel-building and socket checks. The prescribed uv command failed on cache permissions; the direct full-suite attempt encountered Matplotlib’s writable-directory requirement during collection. These are environment limitations, not demonstrated regressions. The recorded **232 passed** remains unverified in this audit.
