@@ -35,11 +35,12 @@ GAP_S = (2.0, 3.0)  # jittered so the participant can't anticipate the next cue
 BLOCK_BREAK_S = 15.0
 
 
-def build_schedule(classes: list[str], per_class: int, blocks: int, seed: int) -> list[dict]:
+def build_schedule(classes: list[str], per_class: int, blocks: int, seed: int,
+                   baseline_s: float = BASELINE_S) -> list[dict]:
     """Balanced shuffled cues with onsets measured from the end of the countdown."""
     rng = random.Random(seed)
-    cues = [{"onset_s": 0.0, "duration_s": BASELINE_S, "label": "baseline"}]
-    clock = BASELINE_S + 2.0
+    cues = [{"onset_s": 0.0, "duration_s": baseline_s, "label": "baseline"}]
+    clock = baseline_s + 2.0
     per_block = [per_class // blocks + (1 if b < per_class % blocks else 0) for b in range(blocks)]
     for block, count in enumerate(per_block):
         order = classes * count
@@ -71,10 +72,11 @@ class Capture(threading.Thread):
 
 
 def run_session(out: Path, classes: list[str], per_class: int, blocks: int, seed: int,
-                use_lsl: bool, stream: str | None) -> None:
+                use_lsl: bool, stream: str | None, baseline_s: float = BASELINE_S,
+                fullscreen: bool = True, autostart: bool = False) -> None:
     import tkinter as tk
 
-    cues = build_schedule(classes, per_class, blocks, seed)
+    cues = build_schedule(classes, per_class, blocks, seed, baseline_s)
     minutes = (cues[-1]["onset_s"] + CUE_S) / 60
     print(f"{len(cues)} cues, about {minutes:.1f} minutes including the baseline.")
 
@@ -84,7 +86,10 @@ def run_session(out: Path, classes: list[str], per_class: int, blocks: int, seed
 
     root = tk.Tk()
     root.title("eegmove cues")
-    root.attributes("-fullscreen", True)
+    if fullscreen:
+        root.attributes("-fullscreen", True)
+    else:
+        root.geometry("640x360+40+40")
     title = tk.Label(root, font=("Helvetica", 96, "bold"), fg="white", bg="black")
     detail = tk.Label(root, font=("Helvetica", 36), fg="white", bg="black")
     title.pack(expand=True, fill="both")
@@ -106,7 +111,8 @@ def run_session(out: Path, classes: list[str], per_class: int, blocks: int, seed
     def next_cue() -> None:
         index = state["index"]
         if index >= len(cues):
-            finish()
+            # The last cue has only just appeared, so let it play out before saving.
+            root.after(int((cues[-1]["duration_s"] + 0.5) * 1000), finish)
             return
         cue = cues[index]
         delay = (state["t0"] + cue["onset_s"] - time.perf_counter()) * 1000
@@ -116,7 +122,8 @@ def run_session(out: Path, classes: list[str], per_class: int, blocks: int, seed
         state["index"] += 1
         label = cue["label"]
         if label == "baseline":
-            show("RELAX", "eyes open, look at the screen, stay still", "#30343f")
+            hint = "eyes open, look at the screen, stay still"
+            show("RELAX", hint if use_lsl else "operator: press the eego annotation key NOW", "#30343f")
         elif label == "break":
             show("BREAK", "move around, blink, get comfortable", "black")
         else:
@@ -134,7 +141,6 @@ def run_session(out: Path, classes: list[str], per_class: int, blocks: int, seed
         state["lsl_t0"] = pylsl.local_clock()
         if not use_lsl:
             print("GO: press the eego annotation key now.")
-            show("GO", "operator: press the eego annotation key now", "#30343f")
         next_cue()
 
     def begin(_event=None) -> None:
@@ -142,6 +148,8 @@ def run_session(out: Path, classes: list[str], per_class: int, blocks: int, seed
         countdown(3)
 
     root.bind("<space>", begin)
+    if autostart:
+        root.after(500, begin)
     root.bind("<Escape>", lambda _event: finish())
     show("READY", "operator: press SPACE to start, ESC to stop early", "black")
     root.mainloop()
@@ -157,6 +165,10 @@ def save(out: Path, cues: list[dict], capture: Capture | None, lsl_t0: float | N
             raise RuntimeError("No samples arrived, so there is nothing to save.")
         eeg = np.concatenate(capture.chunks)
         stamps = np.concatenate(capture.stamps)
+        expected = (stamps[-1] - stamps[0]) * capture.inlet.sfreq + 1
+        if len(eeg) < 0.99 * expected:
+            print(f"WARNING: got {len(eeg)} of about {expected:.0f} samples, so the network "
+                  "dropped data. Labels stay correct, but check the eego backup.")
         # Cue times are relative to the capture's first sample, so a loader can index by them.
         offset = (lsl_t0 or stamps[0]) - stamps[0]
         np.savez(out.with_suffix(".npz"), eeg=eeg, timestamps=stamps,

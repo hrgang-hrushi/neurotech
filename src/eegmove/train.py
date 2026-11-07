@@ -39,6 +39,14 @@ def checkpoint_path(channels: list[str]) -> Path:
     return ARTIFACT_DIR / f"pretrained_{len(channels)}ch.pt"
 
 
+def latest_checkpoint() -> Path:
+    """The newest pretrained model, which is the one rebuilt on the real channels."""
+    found = sorted(ARTIFACT_DIR.glob("pretrained_*.pt"), key=lambda p: p.stat().st_mtime)
+    if not found:
+        raise FileNotFoundError("No pretrained model yet. Run: eegmove pretrain")
+    return found[-1]
+
+
 def pretrain(subjects: list[int], heldout: list[int], channels: list[str], classes: list[str],
              cfg: SignalConfig, epochs: int, include_imagined: bool) -> Path:
     t0 = time.time()

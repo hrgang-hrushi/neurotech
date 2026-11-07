@@ -40,7 +40,7 @@ to 2–4 classes: each extra class gets fewer trials and makes the demo less rel
 6. Collect the eego export on the USB drive before leaving. Choose EEProbe `.cnt`.
 
 **If LSL isn't available during rotation 1**, cue with `--no-lsl` and press an eego annotation key
-the moment the screen says GO. Then pair the export with the cue log:
+the moment the screen says RELAX, right after the countdown. Then pair the export with the cue log:
 
 ```bash
 uv run eegmove record --no-lsl --out data/recordings/session1

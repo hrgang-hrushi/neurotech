@@ -52,7 +52,8 @@ def cut_trials(signal: np.ndarray, events: list[tuple[float, float, str]], class
         if label not in classes:
             continue
         start = int(round((onset + CUE_OFFSET_S) * cfg.sfreq))
-        stop = int(round((onset + duration) * cfg.sfreq))
+        # min(): a session cut short leaves cues running past the end of the data.
+        stop = min(int(round((onset + duration) * cfg.sfreq)), len(signal))
         for begin in range(start, stop - size + 1, stride):
             xs.append(signal[begin:begin + size].T)
             ys.append(classes.index(label))
@@ -141,10 +142,34 @@ def read_export(path: Path):
 
 
 def recording_channels(path: Path) -> list[str]:
-    """The channel labels a recording actually has, used to rebuild the pretrained model."""
+    """The labels in a recording, as used for rebuilding the pretrained model."""
     if path.suffix == ".npz":
         return [str(c) for c in np.load(path, allow_pickle=False)["channels"]]
     return read_export(path)[2]
+
+
+def physionet_channels() -> list[str]:
+    """PhysioNet's 64 labels, read from the header of one recording."""
+    import mne
+    from mne.datasets import eegbci
+
+    path = eegbci.load_data(1, [3], path=str(DATA_DIR / "mne"), update_path=False,
+                            verbose="ERROR")[0]
+    raw = mne.io.read_raw_edf(path, preload=False, verbose="ERROR")
+    eegbci.standardize(raw)
+    return list(raw.ch_names)
+
+
+def shared_channels(labels: list[str], available: list[str]) -> tuple[list[str], list[str]]:
+    """Split a recording's labels into those we can pretrain on, and the rest.
+
+    A real cap can have sites PhysioNet lacks, such as the mastoids M1 and M2, and the
+    recording may use a label like 'C3-Ref'. Kept names stay in the recording's order
+    and spelling, so the same labels match the live stream.
+    """
+    known = {normalize_label(name) for name in available}
+    shared = [c for c in labels if normalize_label(c) in known]
+    return shared, [c for c in labels if normalize_label(c) not in known]
 
 
 def _select_channels(signal: np.ndarray, labels: list[str], channels: list[str]) -> np.ndarray:
@@ -165,8 +190,12 @@ def load_recording(path: Path, channels: list[str], classes: list[str], cfg: Sig
     if path.suffix == ".npz":
         saved = np.load(path, allow_pickle=False)
         signal, sfreq, labels = saved["eeg"], float(saved["sfreq"]), [str(c) for c in saved["channels"]]
+        # Convert cue times to sample positions using the timestamps. If the network drops
+        # samples, position and time disagree, and trusting time would shift every label.
+        elapsed = saved["timestamps"] - saved["timestamps"][0]
+        positions = np.searchsorted(elapsed, saved["cue_onset_s"]) / sfreq
         events = [(float(t), float(d), str(n)) for t, d, n in
-                  zip(saved["cue_onset_s"], saved["cue_duration_s"], saved["cue_label"])]
+                  zip(positions, saved["cue_duration_s"], saved["cue_label"])]
     else:
         if schedule is None:
             raise ValueError("eego exports need --schedule with the cue log from the session.")

@@ -90,11 +90,16 @@ def cmd_fetch(args) -> int:
 
 
 def cmd_pretrain(args) -> int:
-    from .datasets import recording_channels
+    from .datasets import physionet_channels, recording_channels, shared_channels
     from .train import pretrain
 
-    channels = (recording_channels(Path(args.montage_from)) if args.montage_from
-                else list(ASSUMED_MONTAGE))
+    channels = list(ASSUMED_MONTAGE)
+    if args.montage_from:
+        channels, dropped = shared_channels(recording_channels(Path(args.montage_from)),
+                                            physionet_channels())
+        print(f"Montage: {len(channels)} channels: {channels}")
+        if dropped:
+            print(f"Not in PhysioNet, so left out of the model: {dropped}")
     subjects = _subjects(args.subjects)
     heldout = _subjects(args.heldout) if args.heldout else []
     subjects = [s for s in subjects if s not in heldout]
@@ -122,19 +127,21 @@ def cmd_record(args) -> int:
     from .record import run_session
 
     run_session(Path(args.out), _classes(args.classes), args.per_class, args.blocks, args.seed,
-                use_lsl=not args.no_lsl, stream=args.stream)
+                use_lsl=not args.no_lsl, stream=args.stream, baseline_s=args.baseline,
+                fullscreen=not args.windowed, autostart=args.autostart)
     return 0
 
 
 def cmd_calibrate(args) -> int:
     import torch
 
-    from .train import calibrate, checkpoint_path
+    from .train import calibrate, latest_checkpoint
 
     if args.pretrained == "none":
         channels, classes, pretrained = list(ASSUMED_MONTAGE), _classes(args.classes), None
     else:
-        pretrained = Path(args.pretrained) if args.pretrained else checkpoint_path(ASSUMED_MONTAGE)
+        pretrained = Path(args.pretrained) if args.pretrained else latest_checkpoint()
+        print(f"Using pretrained model {pretrained.name}")
         saved = torch.load(pretrained, map_location="cpu", weights_only=False)
         channels, classes = saved["channels"], saved["classes"]
     calibrate(Path(args.recording), pretrained, channels, classes, SignalConfig(),
@@ -205,6 +212,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--seed", type=int, default=4)
     p.add_argument("--stream", help="LSL stream name, if several are visible")
     p.add_argument("--no-lsl", action="store_true", help="cues only; label an eego export later")
+    p.add_argument("--baseline", type=float, default=60.0, help="seconds of rest before the cues")
+    p.add_argument("--windowed", action="store_true", help="don't take over the whole screen")
+    p.add_argument("--autostart", action="store_true", help="begin without waiting for SPACE")
     p.set_defaults(run=cmd_record)
 
     p = commands.add_parser("calibrate", help="fit the decoder to one person's recording")

@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from eegmove.config import SignalConfig, mirror_pairs, normalize_label
-from eegmove.datasets import cut_trials
+from eegmove.datasets import cut_trials, shared_channels
 from eegmove.preprocess import StreamPreprocessor, apply_whitening, whitening_matrix
 from eegmove.streaming import match_channels
 
@@ -83,6 +83,22 @@ def test_match_channels_follows_labels_and_skips_non_eeg():
 def test_mirror_pairs_flip_left_and_right():
     assert mirror_pairs(["C3", "Cz", "C4", "FC5", "FC6"]) == [2, 1, 0, 4, 3]
     assert mirror_pairs(["C3", "Cz"]) is None
+
+
+def test_recording_cut_short_keeps_complete_windows_and_drops_the_rest():
+    cfg = SignalConfig()
+    signal = np.zeros((int(cfg.sfreq * 6), 2))  # recording stops mid-way through the second cue
+    x, y, _ = cut_trials(signal, [(0.0, 4.0, "left"), (3.5, 4.0, "right"), (9.0, 4.0, "left")],
+                         ["left", "right"], cfg)
+    assert x.shape == (len(y), 2, cfg.n_times)
+    assert (y == 1).sum() == 1  # only the first crop of the interrupted cue fits
+    assert len(y) == 5
+
+
+def test_shared_channels_drops_sites_physionet_lacks_and_keeps_our_spelling():
+    shared, dropped = shared_channels(["C3-Ref", "M1-Ref", "Cz-Ref"], ["C3", "Cz", "Pz"])
+    assert shared == ["C3-Ref", "Cz-Ref"]
+    assert dropped == ["M1-Ref"]
 
 
 def test_cut_trials_keeps_each_cue_in_one_group():

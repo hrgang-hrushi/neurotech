@@ -122,6 +122,7 @@ def run_live(model_path: Path, host: str = "127.0.0.1", port: int = 9999, stream
             state, event = debounce.update(probs)
             latency = (pylsl.local_clock() - stamps[-1]) * 1000 if len(stamps) else float("nan")
             message = {"t": round(time.time() - start, 3),
+                       "lsl_time": float(stamps[-1]) if len(stamps) else None,
                        "probs": {c: round(float(p), 3) for c, p in zip(model.classes, probs)},
                        "state": state, "event": event, "latency_ms": round(latency, 1)}
             sock.sendto(json.dumps(message).encode(), (host, port))
