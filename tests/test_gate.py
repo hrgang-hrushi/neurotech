@@ -779,3 +779,31 @@ def test_incomplete_verdict_counts_as_missing(tmp_path):
     assert load_verdict(path) is None
     with pytest.raises(Refused):
         choose_model(tmp_path)
+
+
+NAN, INF = float("nan"), float("inf")
+
+
+@pytest.mark.parametrize("bad", [NAN, INF, -0.1, 1.5, "0.9", True, None])
+@pytest.mark.parametrize("field", ["left_right", "three_class"])
+def test_broken_offline_scores_are_no_go(field, bad):
+    assert not judge({**GOOD_OFFLINE, field: bad}, GOOD_LIVE, "imagined")[0]
+
+
+@pytest.mark.parametrize("change", [
+    {"false_per_min": NAN}, {"false_per_min": None}, {"false_per_min": -1},
+    {"clean_s": NAN}, {"clean_s": INF, "false_per_min": NAN},
+    {"correct": NAN}, {"correct": 25}, {"cues": NAN}, {"correct": "18"}])
+def test_broken_live_scores_are_no_go(change):
+    assert not judge(GOOD_OFFLINE, {**GOOD_LIVE, **change}, "imagined")[0]
+
+
+def test_nan_scores_in_a_verdict_file_cannot_type(tmp_path):
+    path = approve(tmp_path, "imagined")
+    file = path.with_suffix(".verdict.json")
+    record = json.loads(file.read_text())
+    record["offline"]["left_right"] = NAN
+    record["go"] = True
+    file.write_text(json.dumps(record))
+    with pytest.raises(Refused, match="left vs right"):
+        choose_model(tmp_path)

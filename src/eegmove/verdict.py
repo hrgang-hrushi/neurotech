@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,34 +52,50 @@ def model_sha1(path: Path) -> str:
     return hashlib.sha1(Path(path).read_bytes()).hexdigest()[:10]
 
 
+def _number(value, low: float = 0.0, high: float = math.inf) -> float | None:
+    """A real number in range, or None. NaN fails every comparison, so it would pass a bar."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value) or not low <= value <= high:
+        return None
+    return float(value)
+
+
 def judge(offline: dict | None, live: dict | None, movement: str,
           rule: GoRule = GoRule()) -> tuple[bool, list[str]]:
-    """Apply the rule to raw scores. Returns (go, the reasons it isn't)."""
+    """Apply the rule to raw scores. Returns (go, the reasons it isn't).
+
+    Every number is checked before it is compared, so a missing, broken or edited value fails.
+    """
     reasons = []
     if movement not in ("imagined", "real"):
         reasons.append(f"movement is {movement!r}, so this model can't be trusted to type")
     if offline is None:
         reasons.append("no held-out scores")
     else:
-        left_right, three_class = offline.get("left_right"), offline.get("three_class")
+        left_right = _number(offline.get("left_right"), 0, 1)
+        three_class = _number(offline.get("three_class"), 0, 1)
         if left_right is None or left_right < rule.left_right:
-            reasons.append(f"left vs right {left_right} is below {rule.left_right}")
+            reasons.append(f"left vs right {offline.get('left_right')} is below {rule.left_right}")
         if three_class is None or three_class < rule.three_class:
-            reasons.append(f"rest, left, right {three_class} is below {rule.three_class}")
+            reasons.append(f"rest, left, right {offline.get('three_class')} is below "
+                           f"{rule.three_class}")
     if live is None:
         reasons.append("no live check yet")
     else:
+        clean = _number(live.get("clean_s")) or 0.0
+        false_rate = _number(live.get("false_per_min"))
+        cues, correct = _number(live.get("cues")), _number(live.get("correct"))
         if live.get("source") != "eeg":
             reasons.append(f"the live check ran on {live.get('source')}, not live EEG")
-        if live.get("clean_s", 0) < rule.rest_s:
-            reasons.append(f"only {live.get('clean_s', 0):.0f} s of clean rest, needs "
-                           f"{rule.rest_s:.0f} s")
-        elif live["false_per_min"] > rule.false_per_min:
-            reasons.append(f"{live['false_per_min']:.2f} false activations a minute, limit is "
+        if clean < rule.rest_s:
+            reasons.append(f"only {clean:.0f} s of clean rest, needs {rule.rest_s:.0f} s")
+        elif false_rate is None or false_rate > rule.false_per_min:
+            reasons.append(f"{live.get('false_per_min')} false activations a minute, limit is "
                            f"{rule.false_per_min}")
-        if live.get("cues", 0) != rule.cues or live.get("correct", 0) < rule.symbols:
-            reasons.append(f"{live.get('correct', 0)} of {live.get('cues', 0)} live symbols "
-                           f"correct, needs {rule.symbols} of {rule.cues}")
+        if cues != rule.cues or correct is None or correct > cues or correct < rule.symbols:
+            reasons.append(f"{live.get('correct')} of {live.get('cues')} live symbols correct, "
+                           f"needs {rule.symbols} of {rule.cues}")
     return not reasons, reasons
 
 

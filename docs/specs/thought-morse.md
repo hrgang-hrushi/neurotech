@@ -255,4 +255,10 @@ requires left vs right to be a stated reason. No fix rounds were needed.
 
 ### Codex audit
 
-To be filled in.
+- Round 1: Overall Fail. Plan adherence failed because `judge` let NaN scores pass, since every
+  comparison with NaN is false. Fixed: every score is checked as a finite number in range first, with
+  tests for broken offline and live values and an edited verdict file. Test coverage failed only on the
+  headset check. Regression was Acceptable because sandbox limits stopped Codex rerunning every test.
+  Full audit: [thought-morse-audit.md](thought-morse-audit.md).
+- `uv run pytest` after the fix: 232 passed.
+- **Pending the owner:** the headset acceptance run of record, calibrate and check. It can't run here.
