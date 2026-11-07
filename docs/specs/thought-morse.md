@@ -220,12 +220,39 @@ requires left vs right to be a stated reason. No fix rounds were needed.
 
 ## Results
 
-- `uv run pytest`: 177 passed, 0 skipped. `test_real_imagined_physionet_runs_through_gate` ran on local
+- `uv run pytest`: 208 passed, 0 skipped. `test_real_imagined_physionet_runs_through_gate` ran on local
   imagined data.
 - Smoke run on a replayed stream, with a real Tk window and real LSL: `record`, `calibrate`, `check`, `live`
   and `type --simulate` all ran. `check` returned NO-GO, as it should on replay.
 - A pre-existing bug surfaced in that run: `eegmove replay` crashed on start because `--run` shadowed the
   command. Fixed, with `test_replay_command_runs`.
+- Real imagined data, PhysioNet subjects 1-3, calibration only, Riemann, held-out left vs right: 0.74, 0.74
+  and 0.41. None would reach the 85% bar. Expect imagined movement to need practice or more data.
 - Nothing has run on the real headset, so real accuracy is unmeasured.
 
-Claude critique and Codex audit: to be filled in.
+### Deviations from the plan
+
+- `rest` in decoder messages means confident rest, not just rest leading, and doubt pauses the letter gap
+  instead of resetting it. The plan's wording let an uncertain stretch finish a letter, and resetting
+  let scattered doubt keep a letter open for minutes.
+- A confident opposite symbol no longer counts toward releasing a held state, so a rebound can't fire.
+- `calibrate --mode` exists for recordings made before modes, and refuses to contradict a stored mode.
+- Check attempts are counted when a check starts, cue order is random per attempt, and `choose_model`
+  re-applies the rule instead of trusting a stored GO.
+- Cut: offline `erd_report`, checkpoint renaming, verdict age, doctor window and word-list checks.
+
+### Claude critique
+
+- Round 1: Overall Fail. Findings: uncertainty could finish a letter, the cue count had no upper limit,
+  `--mode` could relabel a real recording as imagined, a rebound could release into a symbol, untested
+  acceptance paths, misleading docs, malformed messages could freeze the app, snapshot errors stopped
+  capture, a rerun could overwrite a crash snapshot, and repeat attempts were weakened. All fixed in
+  `3326494`.
+- Round 2: Overall Fail, only because the headset check can't run here. New findings were a letter
+  stalling under scattered doubt, oversized and deeply nested messages, untested happy paths for
+  `calibrate` and `live`, incomplete verdict files, silent capture errors, and stale docs. All fixed.
+- Left open: the headset acceptance check needs the owner.
+
+### Codex audit
+
+To be filled in.

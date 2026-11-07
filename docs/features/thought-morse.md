@@ -40,8 +40,8 @@ This is a prototype, and nothing here shows that it works for patients.
 | Word gap | 7 s of rest after re-arming |
 
 A new symbol needs a return to rest, which blocks a rebound from firing the opposite symbol. The
-letter gap only counts confident rest, so an uncertain stretch never finishes a letter. It shows
-UNCERTAIN instead, and if rest stays unsure the letter waits. Expect about 6 to 8 seconds per symbol by estimate.
+letter gap only counts confident rest, so an uncertain stretch never finishes a letter. Doubt pauses
+the gap and shows UNCERTAIN, and `eegmove check` prints how much of rest was confident. Expect about 6 to 8 seconds per symbol by estimate.
 
 ## Where it lives
 

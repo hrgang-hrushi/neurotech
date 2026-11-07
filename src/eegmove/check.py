@@ -50,6 +50,12 @@ def summarize_rest(messages: list[dict], rest_s: float = 120.0) -> dict:
             "false_per_min": events / (clean_s / 60) if clean_s else None}
 
 
+def confident_rest_share(messages: list[dict]) -> float | None:
+    """How much of clean rest the decoder was sure of. Letters only finish on these steps."""
+    clean = [m for m in messages if m["ok"]]
+    return sum(bool(m.get("rest")) for m in clean) / len(clean) if clean else None
+
+
 def score_cues(onsets: list[tuple[str, float, float]], messages: list[dict]) -> dict:
     """Score (label, onset, slot end) slots by when the data happened, not when it arrived.
 
@@ -103,7 +109,10 @@ def run_check(model_path: Path, stream: str | None = None, baseline_s: float = 6
     session.flush()
     rest_messages = collect_rest(session, rest_s, deadline_s, now)
     rest = summarize_rest(rest_messages, rest_s)
+    sure = confident_rest_share(rest_messages)
     say(f"  {rest['clean_s']:.0f} s clean, {rest['false_activations']} false activations")
+    if sure is not None:
+        say(f"  Confident rest on {sure:.0%} of it. Letters finish slowly if this is low.")
 
     result, messages = {"correct": 0, "cues": 0}, []
     if rest["clean_s"] >= rest_s:
@@ -132,7 +141,7 @@ def run_check(model_path: Path, stream: str | None = None, baseline_s: float = 6
         say(f"WARNING: {warning}")
     live = {**rest, **result, "source": session.source, "threshold": session.threshold,
             "debounce": MORSE_DEBOUNCE, "signal_strength": strength, "seed": seed,
-            "attempt": attempt, "warnings": warnings}
+            "attempt": attempt, "warnings": warnings, "confident_rest_share": sure}
     record = save_live(model_path, live)
     say("GO: this model may type." if record["go"] else "NO-GO:")
     for reason in record["reasons"]:

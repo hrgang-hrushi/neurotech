@@ -6,7 +6,7 @@ built separately. Each message looks like:
 `state` is the current smoothed guess. `event` is non-null once per deliberate movement.
 
 Later fields: `run` and `seq` identify and order messages, `ok` is false on a rejected window
-(with `reason`), `rest` is true only when rest really leads, `source` says live EEG or replay,
+(with `reason`), `rest` is true only on confident rest, `source` says live EEG or replay,
 `movement` and `model` name what is decoding, and `snr_db` and `warning` report signal strength.
 """
 

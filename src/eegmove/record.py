@@ -151,6 +151,7 @@ class Capture(threading.Thread):
                     self._try_snapshot()
         except Exception as error:  # a dead thread must not look like a quiet stream
             self.error = error
+            print(f"WARNING: capture stopped, stop the session: {error}")
 
     def _try_snapshot(self) -> None:
         """A full disk must not stop sampling: keep recording, and tell the operator once."""

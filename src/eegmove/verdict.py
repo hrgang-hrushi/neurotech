@@ -101,7 +101,8 @@ def load_verdict(model_path: Path) -> dict | None:
     """The model's verdict, or None if it's missing, broken, or for a different file."""
     try:
         record = json.loads(verdict_path(model_path).read_text())
-        return record if record["sha"] == model_sha1(model_path) else None
+        complete = all(key in record for key in ("offline", "live", "movement", "reasons"))
+        return record if complete and record["sha"] == model_sha1(model_path) else None
     except (OSError, ValueError, KeyError, TypeError):
         return None
 

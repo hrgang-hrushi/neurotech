@@ -160,6 +160,17 @@ def test_uncertainty_longer_than_both_timers_keeps_the_letter_open(typed):
     assert typer.view().uncertain
 
 
+def test_scattered_doubt_pauses_the_gap_and_the_letter_still_ends(typed):
+    typer, stream = typed
+    stream.send(event="left", state="left")
+    for _ in range(4):
+        stream.rest(0.5)
+        stream.send(state="rest", rest=False)
+    assert typer.sequence == "."
+    stream.rest(1.0)
+    assert typer.text == "E"
+
+
 def test_a_hold_restarts_the_clock(typed):
     typer, stream = typed
     stream.send(event="left", state="left")
@@ -225,7 +236,8 @@ def message_with(**change) -> bytes:
                                   b'"state":"rest","source":"eeg"}',
                                   message_with(event=[]), message_with(step_s=float("nan")),
                                   message_with(step_s=1e9), message_with(step_s=0),
-                                  message_with(seq=True), message_with(warning=3)])
+                                  message_with(seq=True), message_with(warning=3),
+                                  message_with(step_s=10 ** 400), b"[" * 200000])
 def test_malformed_message_is_ignored_loudly(typed, data):
     typer, _ = typed
     typer.feed_raw(data)

@@ -64,7 +64,7 @@ class MorseTyper:
         """Feed one datagram. A broken message warns and never stops the app."""
         try:
             message = json.loads(data)
-        except (ValueError, UnicodeDecodeError):
+        except (ValueError, UnicodeDecodeError, RecursionError):
             self._reject("Ignored a message that wasn't valid JSON.")
             return
         self.feed(message)
@@ -89,8 +89,12 @@ class MorseTyper:
                 isinstance(message.get(key), kind) for key, kind in REQUIRED.items()):
             return False
         step = message["step_s"]
+        try:
+            finite = math.isfinite(step)
+        except OverflowError:  # JSON integers can be longer than any float
+            return False
         return (not isinstance(message["seq"], bool)
-                and not isinstance(step, bool) and math.isfinite(step) and 0 < step <= MAX_STEP_S
+                and not isinstance(step, bool) and finite and 0 < step <= MAX_STEP_S
                 and isinstance(message.get("event"), (str, type(None)))
                 and isinstance(message.get("warning"), (str, type(None))))
 
@@ -131,9 +135,14 @@ class MorseTyper:
                 self.notice = f"Sequence too long, so it was cleared ({MAX_SEQUENCE} is the limit)."
             self.uncertain = False
             return
-        rest = message["rest"]
-        self.clock = self.clock + message["step_s"] if rest else 0.0
-        self.uncertain = not rest and message["state"] == "rest"
+        rest, idle = message["rest"], message["state"] == "rest"
+        if rest:
+            self.clock += message["step_s"]
+        elif not idle:
+            self.clock = 0.0  # still holding a movement
+        # Idle but unsure: pause. Zeroing here would let one doubtful step in a few keep a
+        # letter open for minutes, and counting it would let doubt finish a letter.
+        self.uncertain = idle and not rest
         if self.sequence and self.clock >= self.letter_gap_s:
             self._commit()
         if not self.sequence and self.clock >= self.word_gap_s and self.text \

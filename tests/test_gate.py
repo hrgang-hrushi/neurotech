@@ -751,3 +751,31 @@ def test_verdict_files_are_plain_json(tmp_path):
     assert json.loads(path.with_suffix(".verdict.json").read_text())["go"] is True
     assert GoRule().symbols == 17
     assert len(CHANNELS_24) == 24
+
+
+def test_calibrate_command_carries_movement_into_the_model(tmp_path):
+    path = write_motor_recording(tmp_path / "r.npz", 0.9, movement="real", per_class=3)
+    out = tmp_path / "out.joblib"
+    assert main(["calibrate", str(path), "--pretrained", "none", "--out", str(out)]) == 0
+    assert joblib.load(out).movement == "real"
+    assert load_verdict(out)["movement"] == "real"
+
+
+def test_live_command_uses_the_threshold_that_passed(tmp_path, monkeypatch):
+    monkeypatch.setattr(verdict, "ARTIFACT_DIR", tmp_path)
+    path = approve(tmp_path, "imagined", live={**GOOD_LIVE, "threshold": 0.7})
+    calls = []
+    monkeypatch.setattr(live, "run_live", lambda model, **options: calls.append((model, options)))
+    assert main(["live"]) == 0
+    assert calls[0][0] == path and calls[0][1]["threshold"] == 0.7
+
+
+def test_incomplete_verdict_counts_as_missing(tmp_path):
+    path = approve(tmp_path, "imagined")
+    file = path.with_suffix(".verdict.json")
+    record = json.loads(file.read_text())
+    del record["offline"]
+    file.write_text(json.dumps(record))
+    assert load_verdict(path) is None
+    with pytest.raises(Refused):
+        choose_model(tmp_path)

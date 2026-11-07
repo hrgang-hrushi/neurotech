@@ -47,7 +47,7 @@ passed, so use the next free one. The two recordings take about 14 minutes toget
 
 A crash, or a closed window, keeps what was recorded. An existing recording is never overwritten, so
 move it first or pass `--out`. If the app died mid-run, look for `imagined.snapshot.npz`, which loads
-like any recording.
+like any recording. Recording refuses to start until that file has been moved, because it's real data.
 
 **If LSL isn't available during rotation 1**, cue with `--no-lsl` and press an eego annotation key
 the moment the screen says RELAX, right after the countdown. Then pair the export with the cue log:
