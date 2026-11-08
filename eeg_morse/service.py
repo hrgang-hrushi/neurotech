@@ -108,6 +108,10 @@ class DecodeRequest:
 
 
 MIN_SFREQ = 100.0  # the clench band reaches 95 Hz; below this there is nothing to measure
+MIN_USABLE_CHANNELS = 3
+# A channel whose spread exceeds this (in the file's unit, usually uV) is saturated or
+# disconnected; real scalp EEG plus jaw EMG stays far below it.
+MAX_PLAUSIBLE_UV = 5000.0
 
 
 def validated(rec: eio.Recording) -> tuple[eio.Recording, list[str]]:
@@ -115,6 +119,13 @@ def validated(rec: eio.Recording) -> tuple[eio.Recording, list[str]]:
     otherwise spread through the filters into the whole channel)."""
     if not np.isfinite(rec.sfreq) or rec.sfreq < MIN_SFREQ:
         raise ValueError(f"sampling rate {rec.sfreq:g} Hz is too low (need at least {MIN_SFREQ:g} Hz).")
+    eeg = [i for i, t in enumerate(rec.ch_types) if t == "eeg"]
+    usable = [i for i in eeg if np.isfinite(rec.data[i]).all()
+              and 0 < float(np.std(rec.data[i])) < MAX_PLAUSIBLE_UV]
+    if len(usable) < MIN_USABLE_CHANNELS:
+        raise ValueError(
+            f"no usable EEG: only {len(usable)} of {len(eeg)} channels carry signal (the rest are flat "
+            "or saturated). The cap was probably not connected during this recording.")
     finite = np.isfinite(rec.data).all(axis=1)
     if finite.all():
         return rec, []
