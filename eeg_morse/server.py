@@ -41,6 +41,11 @@ _slots = threading.BoundedSemaphore(MAX_CONCURRENT)
 
 
 LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "[::1]", "::1"]
+HOSTS_ENV = "DECODER_ALLOWED_HOSTS"  # extra hostnames when hosted, e.g. a custom domain
+# Set by Vercel at runtime; the deployment's own hostnames are trusted automatically.
+VERCEL_HOST_VARS = ("VERCEL_URL", "VERCEL_BRANCH_URL", "VERCEL_PROJECT_PRODUCTION_URL")
+UPLOAD_MB_ENV = "DECODER_MAX_UPLOAD_MB"
+VERCEL_MAX_UPLOAD_MB = 4  # Vercel functions accept at most 4.5 MB per request
 # The whole multipart body is parsed before the handler runs, so the size cap
 # has to be enforced on Content-Length first (browsers always send it for FormData).
 MAX_BODY_BYTES = MAX_TOTAL_BYTES + 1024 * 1024
@@ -52,16 +57,33 @@ def envelope(data=None, error: str | None = None, status: int = 200) -> JSONResp
     return JSONResponse({"success": error is None, "data": data, "error": error}, status_code=status)
 
 
+def _hosted_hosts() -> list[str]:
+    """Hostnames this deployment answers on (Vercel's own URLs + DECODER_ALLOWED_HOSTS)."""
+    names = [os.environ.get(v, "") for v in VERCEL_HOST_VARS]
+    names += os.environ.get(HOSTS_ENV, "").split(",")
+    return sorted({n.strip().removeprefix("https://").rstrip("/") for n in names if n.strip()})
+
+
 def _origins() -> list[str]:
     raw = os.environ.get(CORS_ENV, "")
     extra = [o.strip().rstrip("/") for o in raw.split(",") if o.strip()]
     bad = [o for o in extra if not _ORIGIN_RE.match(o)]
     if bad:
         raise ValueError(f"{CORS_ENV} must list origins like http://localhost:3088 (no '*'): {bad}")
-    return extra or DEFAULT_ORIGINS
+    return (extra or DEFAULT_ORIGINS) + [f"https://{h}" for h in _hosted_hosts()]
 
 
-def _guard(origins: list[str]):
+def _max_body_bytes() -> int:
+    """Upload cap: DECODER_MAX_UPLOAD_MB, else Vercel's request limit when hosted there."""
+    raw = os.environ.get(UPLOAD_MB_ENV)
+    if raw:
+        return int(float(raw) * 1024 * 1024)
+    if os.environ.get("VERCEL"):
+        return VERCEL_MAX_UPLOAD_MB * 1024 * 1024
+    return MAX_BODY_BYTES
+
+
+def _guard(origins: list[str], max_body: int):
     """Reject cross-site POSTs (blind CSRF from any open web page) and oversized bodies early."""
     allowed = set(origins)
 
@@ -73,8 +95,8 @@ def _guard(origins: list[str]):
             length = request.headers.get("content-length")
             if length is None or not length.isdigit():
                 return envelope(error="Uploads need a Content-Length header.", status=411)
-            if int(length) > MAX_BODY_BYTES:
-                return envelope(error=f"Upload is larger than {MAX_TOTAL_BYTES // (1024 * 1024)} MB.",
+            if int(length) > max_body:
+                return envelope(error=f"Upload is larger than {max_body // (1024 * 1024)} MB.",
                                 status=413)
         return await call_next(request)
 
@@ -111,11 +133,11 @@ def create_app(notes_dir: Path | None = None) -> FastAPI:
     notes = _notes_dir(notes_dir)
     app = FastAPI(title="eeg_morse decoder", version="0.1.0")
     origins = _origins()
-    app.middleware("http")(_guard(origins))
+    app.middleware("http")(_guard(origins, min(MAX_BODY_BYTES, _max_body_bytes())))
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"],
                        allow_headers=["*"])
     # DNS rebinding: a hostile page's domain resolving to 127.0.0.1 sends its own Host.
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=LOOPBACK_HOSTS)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=LOOPBACK_HOSTS + _hosted_hosts())
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:

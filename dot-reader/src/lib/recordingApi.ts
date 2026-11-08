@@ -6,7 +6,21 @@
  * of a crash.
  */
 
-export const DECODER_URL = process.env.NEXT_PUBLIC_DECODER_URL ?? 'http://127.0.0.1:8770';
+const LOCAL_DECODER_URL = 'http://127.0.0.1:8770';
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+const isLocalPage = () => typeof window === 'undefined' || LOCAL_HOSTS.has(window.location.hostname);
+
+/**
+ * Where the decoder API lives: NEXT_PUBLIC_DECODER_URL if set (empty = same origin),
+ * else `eeg-morse serve` on this laptop when the page is local, else the page's own
+ * domain (a hosted deployment routes /api/* to the decoder).
+ */
+export function decoderBase(): string {
+  const configured = process.env.NEXT_PUBLIC_DECODER_URL;
+  if (configured !== undefined) return configured;
+  return isLocalPage() ? LOCAL_DECODER_URL : '';
+}
 
 export const ACCEPTED_EXTENSIONS = [
   '.cnt', '.evt', '.seg', '.edf', '.bdf', '.fif', '.xdf', '.npz', '.csv', '.txt',
@@ -16,6 +30,14 @@ export const SIDECAR_EXTENSIONS = ['.evt', '.seg'] as const;
 /** Session notes (what was said during the recording), written by the team. Never decoded. */
 export const NOTES_EXTENSION = '.txt';
 export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+/** Hosted decoders (Vercel) accept at most ~4.5 MB per request. */
+export const HOSTED_MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+
+export function maxUploadBytes(): number {
+  const configured = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB);
+  if (configured > 0) return configured * 1024 * 1024;
+  return decoderBase() === LOCAL_DECODER_URL ? MAX_UPLOAD_BYTES : HOSTED_MAX_UPLOAD_BYTES;
+}
 const HEALTH_TIMEOUT_MS = 4000;
 const DECODE_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -292,8 +314,11 @@ export function groupFiles(files: readonly File[]): GroupingResult {
       ...(note ? [note] : []),
     ];
     const totalBytes = groupFiles.reduce((sum, f) => sum + f.size, 0);
-    if (totalBytes > MAX_UPLOAD_BYTES) {
-      errors.push(`${main.name}: ${(totalBytes / 1024 ** 2).toFixed(0)} MB is over the 500 MB limit.`);
+    const limit = maxUploadBytes();
+    if (totalBytes > limit) {
+      errors.push(
+        `${main.name}: ${(totalBytes / 1024 ** 2).toFixed(1)} MB is over the ${limit / 1024 ** 2} MB upload limit.`,
+      );
       continue;
     }
     groups.push({ stem: stemOf(main.name), main, files: groupFiles, totalBytes });
@@ -346,7 +371,7 @@ async function fetchJson(
   }
 }
 
-export async function fetchHealth(base: string = DECODER_URL, signal?: AbortSignal): Promise<Health> {
+export async function fetchHealth(base: string = decoderBase(), signal?: AbortSignal): Promise<Health> {
   const { body, status } = await fetchJson(`${base}/api/health`, { cache: 'no-store' }, HEALTH_TIMEOUT_MS, signal);
   const data = unwrapEnvelope(body, status);
   if (!isObj(data) || data.status !== 'ok') throw new DecoderError('Decoder is not ready.');
@@ -356,7 +381,7 @@ export async function fetchHealth(base: string = DECODER_URL, signal?: AbortSign
 export async function decodeRecording(
   group: FileGroup,
   options: { expected?: string; model?: string; signal?: AbortSignal } = {},
-  base: string = DECODER_URL,
+  base: string = decoderBase(),
 ): Promise<DecodeResult> {
   const form = new FormData();
   for (const f of group.files) form.append('files', f, f.name);

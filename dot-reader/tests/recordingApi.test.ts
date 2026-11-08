@@ -71,7 +71,7 @@ describe("groupFiles", () => {
   it("refuses uploads over the size limit", () => {
     const { groups, errors } = groupFiles([bigFile("huge.cnt", MAX_UPLOAD_BYTES + 1)]);
     expect(groups).toEqual([]);
-    expect(errors[0]).toContain("500 MB");
+    expect(errors[0]).toContain("500 MB upload limit");
   });
 });
 
