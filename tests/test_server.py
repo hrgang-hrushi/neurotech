@@ -59,7 +59,7 @@ def test_plan_accepts_cnt_with_sidecars():
     (["a.cnt", "b.evt"], "does not match"),
     (["a.npz", "a.seg"], "only belongs next to"),
     (["a.evt"], "exactly one"),
-    (["a.cnt", "a.evt", "a.seg", "a.npz"], "one recording at a time"),
+    (["a.cnt", "a.evt", "a.seg", "a.txt", "a.npz"], "one recording at a time"),
 ])
 def test_plan_rejects_bad_sets(names, message):
     with pytest.raises(UploadError, match=message):
@@ -269,5 +269,27 @@ def test_disconnected_cap_gets_a_clear_message(tmp_path):
     data[:4] = 40_000.0 + np.random.default_rng(0).normal(scale=8_000.0, size=(4, 500 * 20))
     path = tmp_path / "disconnected.npz"
     np.savez(path, data=data, sfreq=500.0, ch_names=np.array(EEGO_32))
-    with pytest.raises(ValueError, match="cap was probably not connected"):
-        decode_file(DecodeRequest(path, "disconnected.npz"))
+    out = decode_file(DecodeRequest(path, "disconnected.npz", notes=("Said hello",)))
+    assert out["reliable"] is False and out["text"] == "" and out["letters"] == []
+    assert "cap was probably not connected" in out["quality"]["warnings"][0]
+    assert out["session_notes"] == ["Said hello"]
+
+
+def test_session_notes_travel_with_the_recording_and_are_not_decoded(client, question_npz):
+    notes = b"Send an email to John\n\n  Can you fix this?  \nCreate a PR and push it to main\n"
+    with question_npz.open("rb") as f:
+        r = client.post("/api/recordings/decode", files=[("files", ("q.npz", f)), ("files", ("q.txt", notes))])
+    data = r.json()["data"]
+    assert data["session_notes"] == ["Send an email to John", "Can you fix this?", "Create a PR and push it to main"]
+    assert data["text"] == "How are you?"  # notes never replace what the EEG decoded
+
+
+def test_session_notes_must_match_the_recording_name():
+    with pytest.raises(UploadError, match="session notes"):
+        plan(["a.cnt", "b.txt"])
+
+
+def test_no_notes_means_empty_list(client, question_npz):
+    with question_npz.open("rb") as f:
+        r = client.post("/api/recordings/decode", files={"files": ("q.npz", f)})
+    assert r.json()["data"]["session_notes"] == []

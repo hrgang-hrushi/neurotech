@@ -1,9 +1,52 @@
 'use client';
 
-import React from 'react';
-import { AlertTriangle, ArrowRight, AudioLines, CheckCircle2, XCircle } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { AlertTriangle, ArrowRight, AudioLines, CheckCircle2, NotebookPen, XCircle } from 'lucide-react';
 import type { DecodeResult, LetterStatus } from '@/lib/recordingApi';
+import { ScrollFloat } from '@/components/ui/ScrollFloat';
 import { ActivationTrace } from './ActivationTrace';
+
+// Text floats in while the result scrolls into view, and is settled once its top passes mid-screen.
+const FLOAT_PROPS = {
+  effect: 'float',
+  splitBy: 'chars',
+  ease: 'back.inOut(2)',
+  scrollStart: 'top bottom',
+  scrollEnd: 'top 55%',
+  stagger: 0.03,
+} as const;
+
+function SessionNotes({ notes }: { notes: string[] }) {
+  return (
+    <div className="mt-6 rounded-[8px] border border-[var(--ds-border)] bg-[var(--ds-surface-subtle)] p-4 sm:p-5">
+      <div className="flex items-start gap-2 mb-3">
+        <NotebookPen className="w-4 h-4 mt-0.5 text-[var(--ds-text-muted)] shrink-0" aria-hidden="true" />
+        <div>
+          <h3 className="font-heading font-semibold text-xs tracking-wider uppercase text-[var(--ds-text-muted)]">
+            Recorded phrases · session notes
+          </h3>
+          <p className="text-[11px] text-[var(--ds-text-muted)] mt-0.5">
+            What was said during this recording, written down by the team. Not decoded from the EEG.
+          </p>
+        </div>
+      </div>
+      <ol className="flex flex-col gap-2 list-none">
+        {notes.map((note, i) => (
+          <li key={`${i}-${note}`} className="flex items-baseline gap-3">
+            <span className="font-mono text-xs text-[var(--ds-text-muted)] w-5 shrink-0">{i + 1}.</span>
+            <ScrollFloat
+              {...FLOAT_PROPS}
+              as="p"
+              textClassName="text-xl sm:text-2xl font-semibold font-heading text-[var(--ds-text-primary)]"
+            >
+              {note}
+            </ScrollFloat>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
 
 interface RecordingResultProps {
   result: DecodeResult;
@@ -84,10 +127,17 @@ export function RecordingResult({ result, onSpeak, isSpeaking }: RecordingResult
   const sentenceInfo = result.sentence_types.length ? result.sentence_types.join(', ') : null;
   const removed = result.artifacts;
   const isSimulated = /^simulated/i.test(result.file);
+  const cardRef = useRef<HTMLElement>(null);
+
+  // Bring each new result into view; the scroll is what plays the ScrollFloat reveal.
+  useEffect(() => {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    cardRef.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+  }, [result.file, result.text]);
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="ds-card rounded-[8px] p-6 sm:p-7" aria-labelledby="decoded-heading">
+      <section ref={cardRef} className="ds-card rounded-[8px] p-6 sm:p-7 scroll-mt-20" aria-labelledby="decoded-heading">
         <div className="flex items-center justify-between gap-3 pb-4 border-b border-[var(--ds-border-subtle)]">
           <h2 id="decoded-heading" className="font-heading font-semibold text-xs tracking-wider uppercase text-[var(--ds-text-muted)] truncate">
             Decoded · <span className="normal-case tracking-normal font-mono">{result.file}</span>
@@ -105,15 +155,24 @@ export function RecordingResult({ result, onSpeak, isSpeaking }: RecordingResult
           </p>
         )}
 
-        <p className="my-7 text-3xl sm:text-4xl md:text-5xl font-semibold tracking-tight leading-tight font-heading text-[var(--ds-text-primary)] break-words select-text">
-          {result.text || (
-            <span className="text-[var(--ds-text-muted)] font-normal text-2xl">
+        <div className="my-7 break-words select-text">
+          {result.text ? (
+            <ScrollFloat
+              key={`${result.file}-${result.text}`}
+              {...FLOAT_PROPS}
+              as="p"
+              textClassName="text-3xl sm:text-4xl md:text-5xl font-semibold tracking-tight font-heading text-[var(--ds-text-primary)]"
+            >
+              {result.text}
+            </ScrollFloat>
+          ) : (
+            <p className="text-[var(--ds-text-muted)] font-normal text-2xl font-heading">
               {result.reliable
-                ? 'No message found in this recording.'
-                : 'No clear Morse signal in this recording. See the warnings and the activation chart below.'}
-            </span>
+                ? 'No message decoded from this recording.'
+                : 'No clear Morse signal decoded from this recording. See the warnings and the activation chart below.'}
+            </p>
           )}
-        </p>
+        </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button
@@ -129,6 +188,7 @@ export function RecordingResult({ result, onSpeak, isSpeaking }: RecordingResult
         </div>
 
         {result.score && <div className="mt-5"><ScoreBadge score={result.score} /></div>}
+        {result.session_notes.length > 0 && <SessionNotes key={result.file} notes={result.session_notes} />}
       </section>
 
       <section className="ds-card rounded-[8px]" aria-label="Decoding steps">

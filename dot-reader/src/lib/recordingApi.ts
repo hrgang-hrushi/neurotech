@@ -9,10 +9,12 @@
 export const DECODER_URL = process.env.NEXT_PUBLIC_DECODER_URL ?? 'http://127.0.0.1:8770';
 
 export const ACCEPTED_EXTENSIONS = [
-  '.cnt', '.evt', '.seg', '.edf', '.bdf', '.fif', '.xdf', '.npz', '.csv',
+  '.cnt', '.evt', '.seg', '.edf', '.bdf', '.fif', '.xdf', '.npz', '.csv', '.txt',
 ] as const;
 /** Files that only make sense next to a .cnt with the same name. */
 export const SIDECAR_EXTENSIONS = ['.evt', '.seg'] as const;
+/** Session notes (what was said during the recording), written by the team. Never decoded. */
+export const NOTES_EXTENSION = '.txt';
 export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 const HEALTH_TIMEOUT_MS = 4000;
 const DECODE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -37,6 +39,8 @@ export interface DecodeResult {
   model: string;
   /** False when the signal is too weak to trust: no sentence, no word correction. */
   reliable: boolean;
+  /** What the team noted was said during the recording (from a .txt next to it). Not decoded. */
+  session_notes: string[];
   text: string;
   raw_text: string;
   corrected_text: string;
@@ -177,6 +181,7 @@ export function parseDecodeResult(data: unknown): DecodeResult {
     bad_channels: strings(data.bad_channels),
     model: str(data, 'model', 'unknown'),
     reliable: data.reliable !== false,
+    session_notes: strings(data.session_notes),
     text: str(data, 'text'),
     raw_text: str(data, 'raw_text', ''),
     corrected_text: str(data, 'corrected_text', ''),
@@ -249,6 +254,7 @@ export function groupFiles(files: readonly File[]): GroupingResult {
   const errors: string[] = [];
   const mains = new Map<string, File>();
   const sidecars = new Map<string, File[]>();
+  const notes = new Map<string, File>();
 
   for (const file of files) {
     if (isFolderPlaceholder(file)) {
@@ -261,7 +267,9 @@ export function groupFiles(files: readonly File[]): GroupingResult {
       continue;
     }
     const key = stemOf(file.name).toLowerCase();
-    if (isSidecar(ext)) {
+    if (ext === NOTES_EXTENSION) {
+      notes.set(key, file);
+    } else if (isSidecar(ext)) {
       sidecars.set(key, [...(sidecars.get(key) ?? []), file]);
     } else if (mains.has(key)) {
       errors.push(
@@ -278,13 +286,22 @@ export function groupFiles(files: readonly File[]): GroupingResult {
     if (extras.length && extensionOf(main.name) !== '.cnt') {
       errors.push(`${extras.map((f) => f.name).join(', ')}: .evt/.seg files belong to an eego .cnt, not ${main.name}.`);
     }
-    const groupFiles = extensionOf(main.name) === '.cnt' ? [main, ...extras] : [main];
+    const note = notes.get(key);
+    const groupFiles = [
+      ...(extensionOf(main.name) === '.cnt' ? [main, ...extras] : [main]),
+      ...(note ? [note] : []),
+    ];
     const totalBytes = groupFiles.reduce((sum, f) => sum + f.size, 0);
     if (totalBytes > MAX_UPLOAD_BYTES) {
       errors.push(`${main.name}: ${(totalBytes / 1024 ** 2).toFixed(0)} MB is over the 500 MB limit.`);
       continue;
     }
     groups.push({ stem: stemOf(main.name), main, files: groupFiles, totalBytes });
+  }
+  for (const [key, note] of notes) {
+    if (!mains.has(key)) {
+      errors.push(`${note.name}: session notes go with the recording of the same name — drop them together.`);
+    }
   }
   for (const [key, extras] of sidecars) {
     if (!mains.has(key)) {

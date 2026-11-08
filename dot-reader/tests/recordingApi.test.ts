@@ -75,6 +75,25 @@ describe("groupFiles", () => {
   });
 });
 
+describe("session notes", () => {
+  const f = (name: string, size = 10) => new File(["x".repeat(size)], name);
+  it("travel with the recording of the same name", () => {
+    const { groups, errors } = groupFiles([f("s.cnt"), f("s.evt"), f("s.seg"), f("s.txt")]);
+    expect(errors).toEqual([]);
+    expect(groups[0].files.map((x) => x.name)).toEqual(["s.cnt", "s.evt", "s.seg", "s.txt"]);
+  });
+  it("can go with any recording type", () => {
+    expect(groupFiles([f("a.npz"), f("a.txt")]).groups[0].files).toHaveLength(2);
+  });
+  it("are flagged when dropped without their recording", () => {
+    expect(groupFiles([f("lonely.txt")]).errors[0]).toContain("session notes");
+  });
+  it("are parsed as a list and default to empty", () => {
+    expect(parseDecodeResult({ ...validResult, session_notes: ["Hi", 3, "There"] }).session_notes).toEqual(["Hi", "There"]);
+    expect(parseDecodeResult(validResult).session_notes).toEqual([]);
+  });
+});
+
 describe("parseDecodeResult", () => {
   it("reads the reliable flag and defaults it to true for older servers", () => {
     expect(parseDecodeResult({ ...validResult, reliable: false, text: "" }).reliable).toBe(false);

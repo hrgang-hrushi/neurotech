@@ -26,7 +26,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .service import DecodeRequest, available_models, decode_file
-from .uploads import MAX_TOTAL_BYTES, Incoming, UploadError, safe_name, stage
+from .uploads import MAX_TOTAL_BYTES, Incoming, UploadError, read_notes, safe_name, stage
 
 log = logging.getLogger(__name__)
 
@@ -142,7 +142,8 @@ def _decode(files: list[UploadFile], model: str | None, expected: str | None,
         rate = _parse_sfreq(sfreq)
         with tempfile.TemporaryDirectory(prefix="eeg_upload_") as tmp:
             path = stage([Incoming(f.filename or "", f.file) for f in files], Path(tmp))
-            req = DecodeRequest(path, safe_name(path.name), model, expected, rate)
+            req = DecodeRequest(path, safe_name(path.name), model, expected, rate,
+                                tuple(read_notes(path)))
             return envelope(decode_file(req))
     except UploadError as e:
         return envelope(error=str(e), status=e.status)
