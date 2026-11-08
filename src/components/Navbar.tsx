@@ -26,6 +26,10 @@ interface NavbarProps {
   onSourceChange: (source: Source) => void;
   isSpeaking?: boolean;
   onOpenHelp?: () => void;
+  wsConnected?: boolean;
+  decoderConnected?: boolean;
+  eegConnected?: boolean;
+  bridgeStatus?: string;
 }
 
 const sourceLabels: Record<Source, { title: string; subtitle: string; icon: React.ElementType }> = {
@@ -41,6 +45,10 @@ export function Navbar({
   onSourceChange,
   isSpeaking = false,
   onOpenHelp,
+  wsConnected = false,
+  decoderConnected = false,
+  eegConnected = false,
+  bridgeStatus,
 }: NavbarProps) {
   const [isSourceOpen, setIsSourceOpen] = React.useState(false);
   const [isDark, setIsDark] = React.useState(true);
@@ -182,6 +190,23 @@ export function Navbar({
           >
             <Keyboard className="w-4 h-4 text-[var(--ds-text-secondary)]" />
           </button>
+
+          {/* Signal Stream Status (when not manual) */}
+          {source !== 'manual' && (
+            <div
+              className="ds-pill cursor-default whitespace-nowrap shrink-0 hidden md:flex"
+              title={bridgeStatus || (wsConnected ? 'Connected to bridge' : 'Connecting to bridge...')}
+            >
+              <span
+                className={`ds-stage-dot ${eegConnected ? 'ds-stage-dot-success animate-pulse' : wsConnected ? 'animate-pulse' : 'ds-stage-dot-warning'}`}
+                style={{ backgroundColor: eegConnected ? '#2ee59d' : wsConnected ? 'var(--ds-chart-blue)' : undefined }}
+                aria-hidden="true"
+              />
+              <span className="text-xs font-mono">
+                {eegConnected ? 'EEG Streaming' : wsConnected ? 'Bridge Active' : 'Waiting for LSL'}
+              </span>
+            </div>
+          )}
 
           {/* §4.3 Status Words + Icon + Stage Dot */}
           <div

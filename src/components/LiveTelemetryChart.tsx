@@ -8,18 +8,35 @@ import {
   LiveXAxis,
   LiveYAxis,
 } from '@bklitui/ui/charts';
-import { Waves, Play, Pause } from 'lucide-react';
+import { Waves, Play, Pause, Activity } from 'lucide-react';
 
-export function LiveTelemetryChart() {
+interface LiveTelemetryChartProps {
+  realtimePoints?: { time: number; value: number }[];
+  isLiveFeed?: boolean;
+  channel?: 'C3 (Left Motor)' | 'C4 (Right Motor)';
+  onChannelChange?: (ch: 'C3 (Left Motor)' | 'C4 (Right Motor)') => void;
+  prediction?: { state: string; confidence: number; latency_ms: number } | null;
+}
+
+export function LiveTelemetryChart({
+  realtimePoints,
+  isLiveFeed = false,
+  channel: externalChannel,
+  onChannelChange,
+  prediction,
+}: LiveTelemetryChartProps) {
   const [data, setData] = useState<{ time: number; value: number }[]>([]);
   const [currentVal, setCurrentVal] = useState<number>(14.2);
   const [paused, setPaused] = useState<boolean>(false);
-  const [channel, setChannel] = useState<'C3 (Left Motor)' | 'C4 (Right Motor)'>('C3 (Left Motor)');
+  const [internalChannel, setInternalChannel] = useState<'C3 (Left Motor)' | 'C4 (Right Motor)'>('C3 (Left Motor)');
+
+  const channel = externalChannel ?? internalChannel;
+  const setChannel = onChannelChange ?? setInternalChannel;
 
   const baseVoltageRef = useRef(14.0);
   const phaseRef = useRef(0);
 
-  // Initialize with 30 seconds of historical streaming points
+  // Initialize with initial points
   useEffect(() => {
     const now = Date.now() / 1000;
     const initialPoints: { time: number; value: number }[] = [];
@@ -32,9 +49,20 @@ export function LiveTelemetryChart() {
     setCurrentVal(initialPoints[initialPoints.length - 1].value);
   }, []);
 
-  // Streaming data generator interval (~150ms per point for fluid EEG telemetry)
+  // Update when real-time points arrive from WebSocket bridge
   useEffect(() => {
-    if (paused) return;
+    if (isLiveFeed && realtimePoints && realtimePoints.length > 0) {
+      setData(realtimePoints);
+      const latest = realtimePoints[realtimePoints.length - 1];
+      if (latest) {
+        setCurrentVal(latest.value);
+      }
+    }
+  }, [isLiveFeed, realtimePoints]);
+
+  // Streaming data generator interval (~150ms per point for fluid EEG telemetry when not live)
+  useEffect(() => {
+    if (paused || (isLiveFeed && realtimePoints && realtimePoints.length > 5)) return;
 
     const interval = setInterval(() => {
       phaseRef.current += 0.25;
@@ -48,7 +76,7 @@ export function LiveTelemetryChart() {
     }, 150);
 
     return () => clearInterval(interval);
-  }, [paused]);
+  }, [paused, isLiveFeed, realtimePoints]);
 
   const momentumColors = {
     up: '#8FADE3',
@@ -67,10 +95,18 @@ export function LiveTelemetryChart() {
               <h2 className="text-base sm:text-lg font-semibold text-[var(--ds-text-primary)] leading-none font-heading">
                 Sensorimotor Rhythm Live Stream
               </h2>
-              <span className={`ds-stage-dot ${paused ? 'ds-stage-dot-warning' : 'animate-pulse'}`} style={{ backgroundColor: 'var(--ds-chart-blue)' }} />
+              <span
+                className={`ds-stage-dot ${paused ? 'ds-stage-dot-warning' : 'animate-pulse'}`}
+                style={{ backgroundColor: isLiveFeed ? '#2ee59d' : 'var(--ds-chart-blue)' }}
+              />
+              {isLiveFeed && (
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded-[6px] bg-[#2ee59d]/10 text-[#2ee59d] border border-[#2ee59d]/20">
+                  LSL Stream Active
+                </span>
+              )}
             </div>
             <p className="text-xs text-[var(--ds-text-muted)] mt-1.5 font-subheading">
-              Continuous {channel} sensor micro-voltage stream (μV) at 250Hz sampling
+              Continuous {channel} sensor micro-voltage stream (μV) at {isLiveFeed ? 'real-time LSL' : '250Hz'} sampling
             </p>
           </div>
         </div>
@@ -110,6 +146,14 @@ export function LiveTelemetryChart() {
               {currentVal > 0 ? `+${currentVal.toFixed(1)}` : currentVal.toFixed(1)} μV
             </span>
           </div>
+
+          {/* Prediction feedback if active */}
+          {prediction && prediction.state !== 'rest' && (
+            <div className="h-8 px-3 rounded-[8px] font-mono text-xs flex items-center border border-[var(--ds-border)] bg-[var(--ds-surface)]">
+              <span className="text-[var(--ds-text-secondary)] uppercase mr-1">{prediction.state}:</span>
+              <span className="font-semibold text-[#2ee59d]">{(prediction.confidence * 100).toFixed(0)}%</span>
+            </div>
+          )}
 
           {/* Pause / Resume Button (8px rounding) */}
           <button
@@ -162,12 +206,18 @@ export function LiveTelemetryChart() {
           <span>Telemetry: <strong className="text-[var(--ds-chart-blue)]">#8FADE3 (You)</strong></span>
           <span>•</span>
           <span>Impedance: <strong className="text-[var(--ds-text-primary)]">&lt; 5 kΩ (Optimal)</strong></span>
+          {prediction && (
+            <>
+              <span>•</span>
+              <span>Decoder Latency: <strong className="text-[var(--ds-text-primary)]">{prediction.latency_ms.toFixed(0)} ms</strong></span>
+            </>
+          )}
         </div>
         <div className="sm:hidden flex items-center gap-2">
           <span>μ-Band (8–12 Hz) • <strong className="text-[var(--ds-chart-blue)]">#8FADE3 (You)</strong></span>
         </div>
         <div className="font-mono text-[10px]">
-          Buffer: {data.length} pts | 4ms
+          Buffer: {data.length} pts {isLiveFeed ? '| Live LSL' : '| 4ms'}
         </div>
       </div>
     </section>
