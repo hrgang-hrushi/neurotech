@@ -1,16 +1,19 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Navbar, ActiveTab, Source } from '@/components/Navbar';
 import { MessageStudio } from '@/components/MessageStudio';
 import { PhraseBoard } from '@/components/PhraseBoard';
 import { EegMonitor } from '@/components/EegMonitor';
 import { ShortcutsModal } from '@/components/ShortcutsModal';
-import { createMorseController, MorseController, MorseSnapshot, speakText } from '@/lib/morse';
+import { useSignalStream } from '@/lib/useSignalStream';
 
 export default function DotReaderApp() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('Message Studio');
   const [source, setSource] = useState<Source>('manual');
+  const [autoSpeak, setAutoSpeak] = useState(true);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [activeChannel, setActiveChannel] = useState<'C3 (Left Motor)' | 'C4 (Right Motor)'>('C3 (Left Motor)');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -19,45 +22,27 @@ export default function DotReaderApp() {
       else if (hash.includes('eeg')) setActiveTab('EEG Monitor');
     }
   }, []);
-  const [autoSpeak, setAutoSpeak] = useState(true);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isHelpOpen, setIsHelpOpen] = useState(false);
-  const [recentMessages, setRecentMessages] = useState<string[]>([
-    'I NEED WATER',
-    'THANK YOU',
-  ]);
 
-  const [morseState, setMorseState] = useState<MorseSnapshot>({
-    pendingSymbols: '',
-    writtenMorse: '',
-    text: '',
-    decoderState: 'Ready for a symbol (use keys . and -)',
-  });
-
-  const controllerRef = useRef<MorseController | null>(null);
-
-  // Initialize Morse Decoder Controller
-  useEffect(() => {
-    controllerRef.current = createMorseController((snap) => {
-      setMorseState(snap);
-      if (snap.spokenWord && autoSpeak) {
-        handleSpeak(snap.spokenWord);
-      }
-    });
-
-    return () => {
-      // cleanup if needed
-    };
-  }, [autoSpeak]);
-
-  // Voice vocalization helper
-  const handleSpeak = (textToSpeak: string) => {
-    const trimmed = textToSpeak.trim();
-    if (!trimmed) return;
-    setIsSpeaking(true);
-    setRecentMessages((prev) => [trimmed, ...prev.filter((m) => m !== trimmed)].slice(0, 6));
-    speakText(trimmed, () => setIsSpeaking(false));
-  };
+  const {
+    wsConnected,
+    decoderConnected,
+    eegConnected,
+    bridgeStatus,
+    channels,
+    c3Points,
+    c4Points,
+    lastPrediction,
+    morseState,
+    recentMessages,
+    isSpeaking,
+    sendSymbol,
+    commitLetter,
+    commitWord,
+    backspace,
+    clear,
+    loadPreset,
+    handleSpeak,
+  } = useSignalStream(source, autoSpeak);
 
   // Keyboard shortcut listener for BCI triggers
   useEffect(() => {
@@ -66,19 +51,19 @@ export default function DotReaderApp() {
 
       if (e.key === '.' || e.key === 'd' || e.key === 'ArrowLeft') {
         e.preventDefault();
-        controllerRef.current?.symbol('.');
+        sendSymbol('.');
       } else if (e.key === '-' || e.key === '_' || e.key === 'f' || e.key === 'ArrowRight') {
         e.preventDefault();
-        controllerRef.current?.symbol('-');
+        sendSymbol('-');
       } else if (e.key === ' ') {
         e.preventDefault();
-        controllerRef.current?.commitLetter();
+        commitLetter();
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        controllerRef.current?.commitWord();
+        commitWord();
       } else if (e.key === 'Backspace') {
         e.preventDefault();
-        controllerRef.current?.backspace();
+        backspace();
       } else if (e.key === 'Escape') {
         setIsHelpOpen(false);
       }
@@ -86,12 +71,9 @@ export default function DotReaderApp() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [sendSymbol, commitLetter, commitWord, backspace]);
 
-  const handlePhraseSelect = (phrase: string) => {
-    controllerRef.current?.loadText(phrase);
-    handleSpeak(phrase);
-  };
+  const activePoints = activeChannel.startsWith('C3') ? c3Points : c4Points;
 
   return (
     <div className="w-full min-h-screen bg-[var(--ds-bg)] text-[var(--ds-text-primary)] flex flex-col selection:bg-white/20 selection:text-white">
@@ -103,6 +85,10 @@ export default function DotReaderApp() {
         onSourceChange={setSource}
         isSpeaking={isSpeaking}
         onOpenHelp={() => setIsHelpOpen(true)}
+        wsConnected={wsConnected}
+        decoderConnected={decoderConnected}
+        eegConnected={eegConnected}
+        bridgeStatus={bridgeStatus}
       />
 
       {/* 2. Main Tab View (Expanded to max-w-6xl with Balanced Spacing) */}
@@ -115,25 +101,35 @@ export default function DotReaderApp() {
             decoderState={morseState.decoderState}
             autoSpeak={autoSpeak}
             onToggleAutoSpeak={() => setAutoSpeak(!autoSpeak)}
-            onSymbol={(val) => controllerRef.current?.symbol(val)}
-            onCommitLetter={() => controllerRef.current?.commitLetter()}
-            onCommitWord={() => controllerRef.current?.commitWord()}
-            onBackspace={() => controllerRef.current?.backspace()}
-            onClear={() => controllerRef.current?.clear()}
+            onSymbol={sendSymbol}
+            onCommitLetter={commitLetter}
+            onCommitWord={commitWord}
+            onBackspace={backspace}
+            onClear={clear}
             onSpeak={() => handleSpeak(morseState.text)}
             recentMessages={recentMessages}
             onSelectRecent={handleSpeak}
+            realtimePoints={activePoints}
+            isLiveFeed={source !== 'manual' && eegConnected}
+            activeChannel={activeChannel}
+            onChannelChange={setActiveChannel}
+            prediction={lastPrediction}
           />
         )}
 
         {activeTab === 'Phrase Board' && (
           <PhraseBoard
-            onSpeakPhrase={handlePhraseSelect}
+            onSpeakPhrase={loadPreset}
             activePhrase={morseState.text}
           />
         )}
 
-        {activeTab === 'EEG Monitor' && <EegMonitor />}
+        {activeTab === 'EEG Monitor' && (
+          <EegMonitor
+            channels={channels}
+            isLiveFeed={source !== 'manual' && eegConnected}
+          />
+        )}
       </main>
 
       {/* 3. Shortcuts Modal */}

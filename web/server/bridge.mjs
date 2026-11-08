@@ -85,6 +85,11 @@ websocket.on('connection', (client) => {
     if (request?.type !== 'decoder_command') return
     if (request.action === 'arm' && !morseSocket) armed.add(client)
     if (request.action === 'disarm' && !morseSocket) disarm(client)
+    if (request.action === 'symbol' && (request.value === '.' || request.value === '-')) {
+      if (!morseSocket) decoder.symbol(request.value)
+    }
+    if (request.action === 'commitLetter' && !morseSocket) decoder.commitLetter?.()
+    if (request.action === 'commitWord' && !morseSocket) decoder.commitWord?.()
     if (!['backspace', 'clear'].includes(request.action)) return
     if (morseSocket) morseSocket.send(JSON.stringify(request), commandPort, host)
     else if (request.action === 'backspace') decoder.backspace()

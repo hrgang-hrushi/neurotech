@@ -31,6 +31,11 @@ interface MessageStudioProps {
   onSpeak: () => void;
   recentMessages: string[];
   onSelectRecent: (msg: string) => void;
+  realtimePoints?: { time: number; value: number }[];
+  isLiveFeed?: boolean;
+  activeChannel?: 'C3 (Left Motor)' | 'C4 (Right Motor)';
+  onChannelChange?: (ch: 'C3 (Left Motor)' | 'C4 (Right Motor)') => void;
+  prediction?: { state: string; confidence: number; latency_ms: number } | null;
 }
 
 export function MessageStudio({
@@ -48,6 +53,11 @@ export function MessageStudio({
   onSpeak,
   recentMessages,
   onSelectRecent,
+  realtimePoints,
+  isLiveFeed,
+  activeChannel,
+  onChannelChange,
+  prediction,
 }: MessageStudioProps) {
   const [showReference, setShowReference] = useState(false);
   const alphabetPairs = Object.entries(MORSE_MAP).slice(0, 26);
@@ -147,7 +157,13 @@ export function MessageStudio({
       </section>
 
       {/* 2. Real-Time Streaming Live Line Chart (@bklitui/ui/charts) */}
-      <LiveTelemetryChart />
+      <LiveTelemetryChart
+        realtimePoints={realtimePoints}
+        isLiveFeed={isLiveFeed}
+        channel={activeChannel}
+        onChannelChange={onChannelChange}
+        prediction={prediction}
+      />
 
       {/* 3. Accessible Neural & Manual Trigger Pads */}
       <section className="w-full flex flex-col gap-4" aria-label="Signal Triggers">
