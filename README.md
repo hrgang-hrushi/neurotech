@@ -34,8 +34,9 @@ A short movement is a dot, a long one is a dash, and pauses separate letters and
 | Signal processing, detection, timing, Morse decoding | Implemented, unit-tested |
 | Offline decoding of files (`decode`) and tuning on a known phrase (`calibrate`) | Implemented, tested on **simulated** recordings |
 | Live decoding from eego's LSL stream (`live`) | Implemented; the decoder is tested by replaying simulated data. **Not yet run against a real eego stream** |
-| Reading eego `.cnt` files | Uses MNE's ANT reader (`mne.io.read_raw_ant`); **not yet run on a real eego file** |
-| Accuracy on real people | **Unknown until we run real recordings.** All numbers below come from the simulator. |
+| Reading eego `.cnt` files | **Tested on a real eego recording** (24-ch dry cap, 500 Hz, 6 paused/resumed segments, labeled events) via `antio` |
+| Training on labeled eego events (`train`) | **Tested on real data**: jaw clench and short/long blinks (results below) |
+| Accuracy on real people | One recording of one person so far. Simulator numbers further down are for development only. |
 
 When demoing, label simulated output as simulated.
 
@@ -52,7 +53,9 @@ python -m eeg_morse decode hello.npz --preset clench --plot hello.png --json hel
 python -m eeg_morse live --replay hello.npz --preset clench --speed 1
 
 # 3. real data from eego
-python -m eeg_morse info session.cnt                      # see your cap's channel labels
+python -m eeg_morse info session.cnt                      # channels, segments, impedances, labels, bad channels
+python -m eeg_morse train session.cnt --preset clench --labels Clench --out models/clench.json --plot clench.png
+python -m eeg_morse train session.cnt --preset blink --labels Blink --short "Short Blink" --long "Long Blink" --out models/blink.json --plot blink.png
 python -m eeg_morse calibrate calib.cnt --preset motor --expect PARIS --out me.json --plot calib.png
 python -m eeg_morse decode session.cnt --config me.json --plot session.png
 python -m eeg_morse live --config me.json --markers       # eego must be streaming over LSL
@@ -63,7 +66,7 @@ python -m pytest                                           # 32 tests, ~10 s
 
 ### Using it with eego
 
-**Recorded files.** Record normally in eego; the `.cnt` loads with `pip install mne antio` (MNE ≥ 1.9). eego annotations come through as events. `.xdf` (LabRecorder), `.edf/.bdf`, `.npz` and `.csv` also load.
+**Recorded files.** Record normally in eego; the `.cnt` loads with `antio` (ANT's own reader; MNE ≥ 1.9 is the fallback). Keep the `.evt` and `.seg` files next to the `.cnt`: the loader reads the events you placed in eego (with durations), the impedance checks, and the pause/resume segments. Every stage processes each segment separately (filtering across a pause creates fake spikes), skips the first 2.5 s after each resume while the amplifier settles, treats a pause as a word break, and keeps bad channels (impedance > 1 MΩ, or flat) out of everything.
 
 **Live.** In the eego software tick **Enable LSL EEG streaming**. `live` finds the first LSL stream of type EEG (or `--stream-name`). With `--markers`, decoded letters are published as an LSL marker stream; if eego's network events are enabled (Application options → Network Operation) they are recorded into the `.cnt` next to the EEG.
 
@@ -78,6 +81,32 @@ Live sessions start with **~6 s of rest** to learn the baseline. With a calibrat
 | `blink` | close the eyes (short = dot, held = dash) | large slow deflection on Fp1/Fp2 | 0.3–0.4 s |
 
 `motor` is the "brain signal" path and the hardest: the ERD is slow (~0.5 s lag) and weak on single trials, so it needs long, steady units. `clench` and `blink` are artifacts rather than cortical signals, but they are very reliable switches and make a good fallback or second channel for a demo. Any preset can be overridden: `--channels C4,FC2,CP2` (left-hand mover), `--band 8 30`, `--direction decrease|increase`, `--unit 1.5`, `--line-freq 50` (outside the Americas).
+
+### Training on a labeled eego recording
+
+Place events in eego while recording (or afterwards) for each movement, e.g. `Clench`, `Short Blink`, `Long Blink`, then:
+
+```bash
+python -m eeg_morse train session.cnt --preset clench --labels Clench --out models/clench.json --plot clench.png --report clench.json
+```
+
+`train` ranks every good channel by how much it changes inside your labeled events, then searches channel sets, reference, smoothing and hysteresis for the best match to your labels. Scoring: a labeled event overlapping a detection is a hit; a detection in a block where that movement was never labeled is a false alarm; extra detections inside labeled blocks are reported but not penalised (people blink more often than anyone labels). With `--short`/`--long` it also learns the duration boundary between the two, which becomes the dot/dash threshold. The saved config works with `decode` and `live`.
+
+#### Results on the first real recording (7 Nov 2026)
+
+24-channel dry cap, 500 Hz, reference CPz, 169 s in 6 segments. P3 and P4 were excluded automatically (impedance 1.1 and 1.7 MΩ).
+
+| Movement | Labeled | Found | False alarms | Best channels | Contrast (noise ≈ 0.65) | Model |
+| --- | --- | --- | --- | --- | --- | --- |
+| Jaw clench (held ~2 s) | 4 | **4/4** | 0 | F3, C3, F7, F4, F9, T7 (30–95 Hz muscle power) | 0.85 | `models/team4_clench.json` |
+| Blinks + eye closures | 11 | 7/11 labels; **every visible event found (7 blinks, 4 closures)** | 0 | Fp2, Fp1 (0–8 Hz) | 0.91 | `models/team4_blink.json` |
+
+- Short blinks last ~0.28 s and closures ~2.7 s, so the **dot/dash boundary is 0.86 s** (100% separated).
+- The 4 "missed" blink labels have no eye event under them: one in a block with no eye movement (82 s), one on a 0.7 s gap between closures (128.9 s), one in the settling time right after a resume (93.7 s), one between two blinks (106.5 s). Hand-placed labels also ran up to ~2 s longer than the closures they mark. For the next session, start each block with ~5 s of rest before the first movement.
+- Clench was only recorded held (~2 s), so there is no short/long clench boundary yet. Record short (~0.3 s) and long (~1 s) clenches, then a `PARIS`, to train dot/dash and gap timing.
+- `eeg_morse`'s offline path (`decode`, `calibrate`, `train`) filters zero-phase; only `live` is causal. Offline numbers can therefore be slightly optimistic for live use.
+
+Training plots and reports are derived from a real recording, so they are shared within the team rather than committed; regenerate them with `train --plot --report`. The recording itself stays out of git.
 
 ### Calibration protocol (recommended for every person and session)
 
@@ -138,11 +167,12 @@ eeg_morse/
   timing.py     unit + bias estimation, dots/dashes, letter/word gaps
   morse.py      Morse table, encoder, tolerant decoder
   pipeline.py   decode() and calibrate()
+  train.py      train() on events labeled in eego: matching, scoring, short/long boundary
   stream.py     causal live decoder, LSL inlet/outlet, replay inlet
   simulate.py   synthetic eego-like recordings (SIMULATED data)
   plot.py       diagnostic figure
-  __main__.py   CLI: info, simulate, decode, calibrate, live
-tests/          32 tests (Morse, timing, detection, offline, live, CLI)
+  __main__.py   CLI: info, simulate, decode, calibrate, train, live
+models/         trained eeg_morse configs + plots from real recordings
 scripts/benchmark_sim.py
 examples/       simulated recordings, plots, reports, a calibration config
 ```

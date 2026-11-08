@@ -98,7 +98,9 @@ def thresholds_for(unit: float, bias: float, cfg: TimingConfig) -> tuple[float, 
             cfg.word_gap_ratio * unit - bias)
 
 
-def transcribe(segments: list[Segment], cfg: TimingConfig, correct: bool = True) -> Transcript:
+def transcribe(segments: list[Segment], cfg: TimingConfig, correct: bool = True,
+               breaks: list[float] | None = None) -> Transcript:
+    """breaks: times where the recording was paused; a pause is always a word break."""
     notes: list[str] = []
     unit, bias, source = estimate_unit([s.duration for s in segments], cfg)
     # Two-pass: a real dot lasts ~1 unit, so much shorter key-downs are noise.
@@ -124,6 +126,8 @@ def transcribe(segments: list[Segment], cfg: TimingConfig, correct: bool = True)
         else:
             gap = s.t_on - segments[i - 1].t_off
             kind = "intra" if gap <= letter_gap else ("letter" if gap <= word_gap else "word")
+            if breaks and any(segments[i - 1].t_off <= br <= s.t_on for br in breaks):
+                kind = "word"
         elements.append(Element(s.t_on, s.t_off, sym, gap, kind))
 
     words: list[list[str]] = []
