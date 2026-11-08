@@ -27,7 +27,15 @@ SUBJECTS = {"I", "YOU", "HE", "SHE", "IT", "WE", "THEY", "THIS", "THAT", "THERE"
 URGENT_START = {"HELP", "SOS", "EMERGENCY", "FIRE", "STOP", "DANGER"}
 KEYED_END = {"?": "question", "!": "exclamation", ".": "statement"}
 END_MARK = {"question": "?", "exclamation": "!", "statement": "."}
-ALWAYS_UPPER = {"SOS", "OK", "TV", "ID"}
+ALWAYS_UPPER = {"SOS", "OK", "TV", "ID", "PR", "AI", "EEG", "USB", "PDF", "URL", "ASAP", "FYI", "ICU",
+                "ER", "MRI", "CT", "IV", "TBD"}
+# Common first names (US census top names), capitalized anywhere in a sentence.
+NAMES = {"JAMES", "JOHN", "ROBERT", "MICHAEL", "WILLIAM", "DAVID", "RICHARD", "JOSEPH", "THOMAS",
+         "CHARLES", "DANIEL", "MATTHEW", "ANTHONY", "MARK", "PAUL", "STEVEN", "KEVIN", "BRIAN",
+         "GEORGE", "EDWARD", "RYAN", "JACOB", "ERIC", "PETER", "SAM", "MARY", "PATRICIA",
+         "JENNIFER", "LINDA", "ELIZABETH", "SUSAN", "JESSICA", "SARAH", "KAREN", "NANCY", "LISA",
+         "EMILY", "EMMA", "ANNA", "AMY", "ANGELA", "LAURA", "OLIVIA", "SOPHIA", "IVY", "GRACE",
+         "ALEX", "CHRIS", "JORDAN", "TAYLOR"}
 EXCLAMATIVE_SECOND = {"A", "AN"}  # "WHAT A DAY" is an exclamation, not a question
 
 
@@ -71,6 +79,8 @@ def classify(words: list[str]) -> str:
 def _case(word: str, first: bool) -> str:
     if word in ALWAYS_UPPER:
         return word
+    if word in NAMES:
+        return word.capitalize()
     if word == "I" or word.startswith("I'"):
         return "I" + word[1:].lower()
     low = word.lower()
