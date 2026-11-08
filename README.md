@@ -150,6 +150,35 @@ Live is the causal decoder fed in random chunk sizes. Takeaways: `motor` needs ~
 
 The simulator (`eeg_morse/simulate.py`) models a 32-channel waveguard layout at 500 Hz with pink background noise, posterior alpha, sensorimotor mu/beta with ERD (0.2 s lag, beta rebound), jaw EMG, eye-closure deflections, spontaneous blinks, slow drift, 60 Hz mains and ±12% human timing jitter. Real single-trial ERD is usually noisier than this, so expect real `motor` accuracy to be lower until calibrated per person.
 
+### Drag-and-drop decoding of recordings (dot-reader)
+
+For recorded sessions: drop the file on the dashboard and get a punctuated sentence back.
+
+```bash
+uv run eeg-morse serve                       # terminal 1: decoder API on http://127.0.0.1:8770
+cd dot-reader && bun install && bun run dev  # terminal 2: open the Recordings tab
+```
+
+Drop an eego `.cnt` **together with its `.evt` and `.seg`** (same name), or a single `.edf/.bdf/.fif/.xdf/.npz/.csv`. Type the phrase that was sent into "Expected phrase" to get a character error rate. The `clench` model is `models/team4_clench.json` (falls back to the preset). Set `NEXT_PUBLIC_DECODER_URL` if the API runs elsewhere, and `DECODER_CORS_ORIGINS` (comma-separated) if the dashboard runs on a port other than 3000/3088/3089.
+
+What happens to an upload:
+
+1. **Artifacts** (`artifacts.py`, `clean_decode.py`). Blinks (Fp1/Fp2 deflections), saccades (fast F7−F8 steps) and electrode pops (one electrode jumping) are found first. Blink and saccade *muscle* bursts are broadband like a clench and land on the same frontal sites (F3/F4/F7 on our cap), so they are regressed out of every channel's band power: each channel carries a fixed share of the frontopolar EMG, estimated at eye-event peaks. Popping electrodes are replaced by the median of the others for that stretch. Clench channels are then re-chosen per recording. Frontopolar channels are never used for the clench.
+2. **Morse** as before (Otsu threshold, unit estimation, letter repair).
+3. **Words** (`language.py`). A decoded word that isn't English is corrected by edits to its *Morse*, not its letters: dot↔dash or a missing/extra element costs 1, a misjudged letter gap 0.5. A missed or extra word gap costs less the closer the measured pause was to the word-gap threshold, so `INEED` → `I NEED`, `HE LP` → `HELP`, `COLN` → `COLD`. Candidates are ranked by edit cost plus `wordfreq` word frequency, and real English words get a trust bonus, so they are only replaced by much likelier ones. `IM` → `I'M`, `DONT` → `DON'T`.
+4. **Sentences** (`grammar.py`). Sentence case, capital *I*. A question mark when the sentence opens with a wh-word or with an auxiliary followed by a subject ("CAN YOU HELP ME" → "Can you help me?"). An exclamation mark for HELP/SOS. Otherwise a period. Punctuation keyed in Morse (`..--..` = ?) always wins. A pause of 2× the word gap, or an eego pause, starts a new sentence.
+
+**Accuracy (SIMULATED data only)** from `uv run python scripts/benchmark_artifacts.py --seeds 4 --artifacts 1 3 --noise 1.5 --language`: 8 phrases × 4 seeds per row, 0.3 s dots, `team4_clench`. "real-cap" places the clench EMG where the 7 Nov recording showed it (F3/C3/F7/F4/F9/T7), overlapping the blink sites. Artifacts are blinks with eyelid EMG every ~4 s, saccades every ~6 s and electrode pops every ~20 s, scaled 1× or 3×.
+
+| Clench sites | Artifacts | Plain decode | + artifact removal | + word correction |
+| --- | --- | --- | --- | --- |
+| temporal | 1× | 1/32 exact, CER 31.6% | 31/32, 0.3% | **32/32, 0.0%** |
+| temporal | 3× | 0/32, 61.7% | 31/32, 0.3% | **32/32, 0.0%** |
+| real-cap | 1× | 31/32, 0.3% | 30/32, 0.5% | **31/32, 0.6%** |
+| real-cap | 3× | 0/32, 37.7% | 28/32, 2.1% | **29/32, 1.8%** |
+
+Caveats: the artifact model is our own simulator, so these numbers show the method works on the artifacts we modelled, not real-world accuracy. Offline filtering is zero-phase, so it is slightly optimistic compared with live use. Word correction uses word frequencies, not context, and only touches all-letter words of up to 8 letters (or splits run-together words of up to 12), so digits and keyed punctuation pass through unchanged. `CULL` is one edit from both `CALL` and `FULL`, and it picks `FULL`. Swallowing and talking make jaw-like EMG that this does not remove. **Measure on a real recording of a known phrase before quoting a number**, by dropping it with the phrase filled in.
+
 ### What would help next
 
 - A real eego `.cnt` of a person sending a known phrase (and a few seconds of rest), for each movement you plan to use.
@@ -168,12 +197,19 @@ eeg_morse/
   morse.py      Morse table, encoder, tolerant decoder
   pipeline.py   decode() and calibrate()
   train.py      train() on events labeled in eego: matching, scoring, short/long boundary
+  artifacts.py  blink/saccade/pop detection, eye-EMG regression, pop patching
+  clean_decode.py  artifact-aware decode for clench-style configs
+  language.py   Morse-aware word correction (wordfreq lexicon)
+  grammar.py    sentence case and ?/!/. punctuation
+  uploads.py    upload validation and staging (.cnt + .evt + .seg grouping)
+  service.py    file -> JSON result for the dashboard
+  server.py     FastAPI app behind `serve`
   stream.py     causal live decoder, LSL inlet/outlet, replay inlet
-  simulate.py   synthetic eego-like recordings (SIMULATED data)
+  simulate.py   synthetic eego-like recordings (SIMULATED data), optional realistic artifacts
   plot.py       diagnostic figure
-  __main__.py   CLI: info, simulate, decode, calibrate, train, live
+  __main__.py   CLI: info, simulate, decode, calibrate, train, live, serve
 models/         trained eeg_morse configs + plots from real recordings
-scripts/benchmark_sim.py
+scripts/benchmark_sim.py, scripts/benchmark_artifacts.py
 examples/       simulated recordings, plots, reports, a calibration config
 ```
 

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy import signal as sps
+from scipy.special import expit
 
 from . import morse
 from .io import Recording
@@ -28,6 +29,10 @@ ERD_DEPTH = {"C3": 0.75, "FC1": 0.6, "CP1": 0.6, "Cz": 0.55, "FC5": 0.5, "CP5": 
              "C4": 0.4, "FC2": 0.35, "CP2": 0.35}  # right-hand movement: left (C3) strongest
 EMG_WEIGHT = {"T7": 1.0, "T8": 1.0, "M1": 0.8, "M2": 0.8, "F7": 0.4, "F8": 0.4,
               "FC5": 0.3, "FC6": 0.3, "CP5": 0.25, "CP6": 0.25, "P7": 0.3, "P8": 0.3}
+# Clench EMG as seen on the first real recording (7 Nov 2026, 24-ch dry cap):
+# strongest on F3, C3, F7, F4, F9, T7, i.e. overlapping the blink EMG sites.
+REAL_CAP_CLENCH_WEIGHT = {"F3": 1.0, "C3": 0.9, "F7": 0.9, "F4": 0.8, "F9": 0.8, "T7": 0.7,
+                          "FC5": 0.5, "F8": 0.5, "T8": 0.4, "FC1": 0.3, "Fz": 0.3}
 EOG_WEIGHT = {"Fp1": 1.0, "Fp2": 1.0, "Fpz": 1.0, "F7": 0.45, "F3": 0.4, "Fz": 0.4,
               "F4": 0.4, "F8": 0.45, "FC1": 0.15, "FC2": 0.15}
 
@@ -96,8 +101,15 @@ def _smooth_step(k: np.ndarray, fs: float, lag_s: float, tau_s: float) -> np.nda
 def simulate(text: str = "SOS", preset: str = "motor", sfreq: float = 500.0,
              unit_s: float | None = None, jitter: float = 0.12, noise: float = 1.0,
              line_freq: float = 60.0, seed: int = 0, lead_s: float = 6.0,
-             tail_s: float = 4.0, channels: list[str] | None = None) -> tuple[Recording, Truth]:
-    """Return a Recording (microvolts) plus the ground-truth key timeline."""
+             tail_s: float = 4.0, channels: list[str] | None = None,
+             artifacts: float = 0.0,
+             emg_weight: dict[str, float] | None = None) -> tuple[Recording, Truth]:
+    """Return a Recording (microvolts) plus the ground-truth key timeline.
+
+    artifacts > 0 adds blink/saccade muscle bursts and electrode pops scaled by
+    that factor (see `_realistic_artifacts`); 0 keeps the original simulator.
+    emg_weight overrides where clench EMG appears (e.g. `REAL_CAP_CLENCH_WEIGHT`).
+    """
     rng = np.random.default_rng(seed)
     unit_s = unit_s or {"motor": 1.0, "clench": 0.3, "blink": 0.4}[preset]
     truth, dur = schedule(text, unit_s, jitter, rng, lead_s, tail_s)
@@ -132,7 +144,7 @@ def simulate(text: str = "SOS", preset: str = "motor", sfreq: float = 500.0,
     if preset == "clench":
         emg = _narrowband(n_ch, n, 25.0, min(200.0, 0.45 * sfreq), sfreq, rng)
         env = _smooth_step(key, sfreq, lag_s=0.03, tau_s=0.03)[None, :]
-        x += 25.0 * w(EMG_WEIGHT, 0.05) * env * emg
+        x += 25.0 * w(emg_weight or EMG_WEIGHT, 0.05) * env * emg
     if preset == "blink":
         env = _smooth_step(key, sfreq, lag_s=0.05, tau_s=0.04)
         x += 140.0 * w(EOG_WEIGHT, 0.02) * env[None, :]
@@ -146,6 +158,71 @@ def simulate(text: str = "SOS", preset: str = "motor", sfreq: float = 500.0,
     if line_freq:
         amp = rng.uniform(1.0, 6.0, size=(n_ch, 1))
         x += amp * np.sin(2 * np.pi * line_freq * t + rng.uniform(0, 2 * np.pi))[None, :]
+    if artifacts > 0:
+        x = x + _realistic_artifacts(names, t, sfreq, dur, artifacts, seed)
     rec = Recording(x, sfreq, list(names), source=f"simulated:{preset}:{text!r}:seed{seed}")
     rec.events = [(float(a), "key_down") for a in truth.t_on]
     return rec, truth
+
+
+# Where the eyelid / extraocular muscle bursts of a blink or saccade show up
+# (frontopolar strongest, spreading to frontal and anterior temporal sites).
+BLINK_EMG_WEIGHT = {"Fp1": 1.0, "Fp2": 1.0, "Fpz": 1.0, "AF3": 0.7, "AF4": 0.7,
+                    "F7": 0.45, "F8": 0.45, "F3": 0.35, "F4": 0.35, "Fz": 0.3,
+                    "F9": 0.3, "F10": 0.3}
+HEOG_SIGN = {"F7": 1.0, "F9": 1.0, "Fp1": 0.4, "F8": -1.0, "F10": -1.0, "Fp2": -0.4}
+ARTIFACT_SEED_OFFSET = 10_007
+
+
+def _burst(n_ch: int, n: int, centre: float, width: float, t: np.ndarray, fs: float,
+           rng: np.random.Generator) -> np.ndarray:
+    """Broadband (25 Hz+) muscle burst with a Gaussian envelope, unit rms at its peak."""
+    a, b = int(max(0, (centre - 4 * width) * fs)), int(min(n, (centre + 4 * width) * fs))
+    out = np.zeros((n_ch, n))
+    if b - a < 16:
+        return out
+    sos = sps.butter(4, [25.0, min(200.0, 0.45 * fs)], btype="bandpass", fs=fs, output="sos")
+    noise = sps.sosfilt(sos, rng.normal(size=(n_ch, b - a)), axis=1)
+    noise /= max(float(noise.std()), 1e-12)
+    out[:, a:b] = noise * np.exp(-0.5 * ((t[a:b] - centre) / width) ** 2)[None, :]
+    return out
+
+
+def _realistic_artifacts(names: list[str], t: np.ndarray, fs: float, dur: float,
+                         strength: float, seed: int) -> np.ndarray:
+    """Artifacts that leak into the clench (EMG) band, which the plain simulator lacks.
+
+    - blinks: frontal EOG bump plus an orbicularis-oculi EMG burst (~1 per 4 s)
+    - saccades: horizontal EOG step on F7/F8 with a spike potential (~1 per 6 s)
+    - electrode pops: a sharp step on one dry electrode that decays (~1 per 20 s)
+
+    A separate generator keeps the rest of the simulation bit-identical.
+    """
+    rng = np.random.default_rng(seed + ARTIFACT_SEED_OFFSET)
+    n_ch, n = len(names), t.size
+    x = np.zeros((n_ch, n))
+
+    def w(table: dict, default: float) -> np.ndarray:
+        return np.array([table.get(c, default) for c in names])[:, None]
+
+    eog_w, emg_w = w(EOG_WEIGHT, 0.02), w(BLINK_EMG_WEIGHT, 0.03)
+    for tb in np.cumsum(rng.exponential(4.0, size=int(dur / 2) + 4)):
+        if tb >= dur:
+            break
+        width = rng.uniform(0.05, 0.09)
+        x += 100.0 * eog_w * np.exp(-0.5 * ((t - tb) / width) ** 2)[None, :]
+        x += 30.0 * emg_w * _burst(n_ch, n, tb, width, t, fs, rng)
+    heog_w = w(HEOG_SIGN, 0.0)
+    for ts in np.cumsum(rng.exponential(6.0, size=int(dur / 3) + 4)):
+        if ts >= dur:
+            break
+        step = expit((t - ts) / 0.01) - expit((t - ts - 0.6) / 0.05)  # fast out, slower back
+        x += 60.0 * rng.choice([-1.0, 1.0]) * heog_w * step[None, :]
+        x += 25.0 * emg_w * _burst(n_ch, n, ts, 0.012, t, fs, rng)
+    for tp in np.cumsum(rng.exponential(20.0, size=int(dur / 10) + 2)):
+        if tp >= dur:
+            break
+        ch = int(rng.integers(n_ch))
+        tail = np.where(t >= tp, np.exp(-(t - tp) / 0.3), 0.0)
+        x[ch] += 250.0 * rng.choice([-1.0, 1.0]) * tail
+    return strength * x

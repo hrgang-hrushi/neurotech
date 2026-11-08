@@ -6,6 +6,7 @@
   calibrate  tune settings on a recording of a KNOWN phrase, save a config
   train      tune a detector on events you labeled in eego, save a config
   live       decode eego's LSL stream in real time (or replay a file)
+  serve      HTTP API for drag-and-drop decoding of recordings (dot-reader)
 """
 from __future__ import annotations
 
@@ -216,6 +217,13 @@ def cmd_live(args) -> int:
     return 0
 
 
+def cmd_serve(args) -> int:
+    from .server import serve
+
+    serve(args.host, args.port)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m eeg_morse", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -288,6 +296,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="publish decoded letters as an LSL marker stream (eego can record them)")
     p.add_argument("--save", help="save the final text + settings as JSON")
     p.set_defaults(fn=cmd_live)
+
+    p = sub.add_parser("serve", help="HTTP API for drag-and-drop decoding (dot-reader Recordings tab)")
+    p.add_argument("--host", default="127.0.0.1", help="interface to bind (default: localhost only)")
+    p.add_argument("--port", type=int, default=8770)
+    p.set_defaults(fn=cmd_serve)
 
     args = ap.parse_args(argv)
     with warnings.catch_warnings():
