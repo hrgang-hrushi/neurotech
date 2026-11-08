@@ -24,5 +24,9 @@ Rules:
 - The repo is public: no EEG recordings (`.cnt`, `.evt`, `.seg` and other exports), training plots
   or reports from real recordings, passwords, participant details or invite links. Trained
   `models/*.json` configs are fine.
+- Never overwrite or delete the first real clench/blink results: `models/team4_clench.json`,
+  `models/team4_blink.json`, and the README section "Results on the first real recording
+  (7 Nov 2026)". Save new training runs to new files (for example `models/team4_clench_v2.json`)
+  and add new results as a new section next to the old one.
 - `ASSUMED_MONTAGE` in `src/eegmove/config.py` is a placeholder until the real channel labels
   are known.
