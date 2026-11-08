@@ -25,7 +25,7 @@ const author = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Dot Reader · Assistive BCI Communication",
+  title: "SignalSpeech · Assistive BCI Communication",
   description: "Assistive communication system powered by EEG sensorimotor rhythms and real-time Morse decoding",
 };
 

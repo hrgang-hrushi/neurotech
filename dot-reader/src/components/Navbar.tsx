@@ -76,13 +76,13 @@ export function Navbar({
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-full flex items-center justify-between gap-4">
         {/* Left: Brand Identity */}
         <div className="flex items-center gap-3 shrink-0">
-          <div className="flex items-center gap-1.5" aria-hidden="true" title="Dot Reader Neural Engine">
+          <div className="flex items-center gap-1.5" aria-hidden="true" title="SignalSpeech">
             <span className="w-2.5 h-2.5 rounded-[2px] bg-[var(--ds-chart-blue)] shadow-[0_0_8px_rgba(143,173,227,0.5)]" />
             <span className="w-5 h-1.5 rounded-[2px] bg-[var(--ds-chart-blue)] opacity-80" />
           </div>
           <div>
             <h1 className="text-sm font-semibold tracking-tight text-[var(--ds-text-primary)] leading-tight font-heading whitespace-nowrap">
-              Dot Reader
+              SignalSpeech
             </h1>
             <p className="text-[11px] text-[var(--ds-text-muted)] leading-tight font-subheading whitespace-nowrap hidden sm:block">
               Assistive Neural Morse Communicator

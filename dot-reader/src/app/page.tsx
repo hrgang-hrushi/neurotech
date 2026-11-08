@@ -34,7 +34,7 @@ function subscribeToHash(onChange: () => void): () => void {
 const readHash = () => window.location.hash.toLowerCase();
 const readServerHash = () => '';
 
-export default function DotReaderApp() {
+export default function SignalSpeechApp() {
   const hash = useSyncExternalStore(subscribeToHash, readHash, readServerHash);
   const activeTab = tabFromHash(hash);
   const setActiveTab = useCallback((tab: ActiveTab) => {
