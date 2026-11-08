@@ -12,7 +12,7 @@ import {
 } from '@/lib/recordingApi';
 import { RecordingDropzone } from './RecordingDropzone';
 import { RecordingResult } from './RecordingResult';
-import { PROCESSING_STEPS, ProcessingSteps, STEP_MS, STEP_MS_REDUCED_MOTION } from './ProcessingSteps';
+import { PROCESSING_STEPS, STEP_MS, STEP_MS_REDUCED_MOTION } from './processingSteps';
 
 /** Resolves after `ms`, or immediately when the signal aborts. */
 function pause(ms: number, signal: AbortSignal): Promise<void> {
@@ -106,7 +106,7 @@ export function RecordingsView({ onSpeak, isSpeaking }: RecordingsViewProps) {
       let decoded = 0;
       for (const [i, group] of groups.entries()) {
         if (controller.signal.aborted) return;
-        setProgress(`Decoding ${group.main.name} (${i + 1} of ${groups.length})…`);
+        setProgress('');
         // The request runs in the background while the stages are shown one by one.
         const request = decodeRecording(group, { expected: phrase, model: activeModel, signal: controller.signal })
           .then((result) => ({ result }), (error: unknown) => ({ error }));
@@ -114,7 +114,6 @@ export function RecordingsView({ onSpeak, isSpeaking }: RecordingsViewProps) {
         for (let s = 0; s < PROCESSING_STEPS.length; s++) {
           if (controller.signal.aborted) return;
           setStage({ file: group.main.name, index: s });
-          setProgress(`${group.main.name}: ${PROCESSING_STEPS[s]}…`);
           await pause(ms, controller.signal);
         }
         const outcome = await request;
@@ -201,7 +200,11 @@ export function RecordingsView({ onSpeak, isSpeaking }: RecordingsViewProps) {
           </label>
         </div>
 
-        <RecordingDropzone onFiles={handleFiles} busy={busy} />
+        <RecordingDropzone
+          onFiles={handleFiles}
+          busy={busy}
+          busyLabel={stage ? `${PROCESSING_STEPS[stage.index]}… (${stage.index + 1}/${PROCESSING_STEPS.length})` : undefined}
+        />
 
         <div aria-live="polite" className="text-sm text-[var(--ds-text-secondary)] min-h-5">{progress}</div>
 
@@ -235,9 +238,7 @@ export function RecordingsView({ onSpeak, isSpeaking }: RecordingsViewProps) {
         </div>
       )}
 
-      {stage ? (
-        <ProcessingSteps fileName={stage.file} activeIndex={stage.index} />
-      ) : selected ? (
+      {stage ? null : selected ? (
         <RecordingResult result={selected.result} onSpeak={onSpeak} isSpeaking={isSpeaking} />
       ) : (
         <div className="ds-empty text-center text-sm text-[var(--ds-text-muted)] py-8">

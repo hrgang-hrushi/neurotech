@@ -4,7 +4,7 @@ import React, { useEffect, useRef } from 'react';
 import { AlertTriangle, ArrowRight, AudioLines, CheckCircle2, NotebookPen, XCircle } from 'lucide-react';
 import type { DecodeResult, LetterStatus } from '@/lib/recordingApi';
 import { ScrollFloat } from '@/components/ui/ScrollFloat';
-import { encodeMorse } from '@/lib/morse';
+import { encodeMorse, REVERSE_MORSE } from '@/lib/morse';
 import { ActivationTrace } from './ActivationTrace';
 
 // Text floats in while the result scrolls into view, and is settled once its top passes mid-screen.
@@ -183,16 +183,38 @@ function UnclearSignal({ result }: { result: DecodeResult }) {
           Signal contrast {result.quality.separability.toFixed(2)} (Morse needs above 0.72).
         </p>
       </div>
-      {result.letters.length > 0 && (
-        <details className="group">
-          <summary className="cursor-pointer text-xs text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)] select-none">
-            Show raw detections (not a message)
-          </summary>
-          <div className="mt-4">
-            <DecodeDetails result={result} />
-          </div>
-        </details>
-      )}
+      {result.session_notes.length > 0 && <NotesMorse notes={result.session_notes} />}
+    </div>
+  );
+}
+
+/** Letter-by-letter Morse for each recorded phrase (a translation, not a decode). */
+function NotesMorse({ notes }: { notes: string[] }) {
+  return (
+    <div className="flex flex-col gap-5">
+      <p className="text-[11px] text-[var(--ds-text-muted)]">
+        Morse translation of the recorded phrases: what would be clenched to send each one. Not decoded from the EEG.
+      </p>
+      {notes.map((note, n) => (
+        <div key={`${n}-${note}`}>
+          <div className="text-sm font-medium text-[var(--ds-text-primary)] mb-2">{note}</div>
+          <ul className="flex flex-wrap gap-1.5" aria-label={`Morse translation of: ${note}`}>
+            {Array.from(note.toUpperCase()).map((ch, i) =>
+              ch === ' ' ? (
+                <li key={i} className="w-3" aria-hidden="true" />
+              ) : REVERSE_MORSE[ch] ? (
+                <li
+                  key={i}
+                  className={`flex flex-col items-center min-w-9 px-2 py-1 rounded-[6px] border ${STATUS_STYLE.ok}`}
+                >
+                  <span className="text-sm font-semibold font-heading">{ch}</span>
+                  <span className="font-mono text-[10px] opacity-80">{REVERSE_MORSE[ch]}</span>
+                </li>
+              ) : null,
+            )}
+          </ul>
+        </div>
+      ))}
     </div>
   );
 }
