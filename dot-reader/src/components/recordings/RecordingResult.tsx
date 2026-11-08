@@ -122,6 +122,73 @@ function ScoreBadge({ score }: { score: NonNullable<DecodeResult['score']> }) {
   );
 }
 
+/** Raw decode -> corrections -> final, plus the Morse and every letter. */
+function DecodeDetails({ result }: { result: DecodeResult }) {
+  return (
+    <>
+        <Progression result={result} />
+        {result.corrections.length > 0 && (
+          <ul className="mt-4 flex flex-wrap gap-2 text-xs" aria-label="Word corrections">
+            {result.corrections.map((c, i) => (
+              <li key={`${c.from}-${i}`} className="px-2.5 py-1 rounded-[6px] border border-[var(--ds-border)] font-mono">
+                <span className="line-through text-[var(--ds-text-muted)]">{c.from}</span>
+                <span className="mx-1.5 text-[var(--ds-text-muted)]">→</span>
+                <span className="text-[var(--ds-text-primary)]">{c.to}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-5">
+          <div className="text-[11px] text-[var(--ds-text-muted)] mb-1">Morse</div>
+          <div className="font-mono text-sm tracking-wider text-[var(--ds-text-secondary)] break-words">{result.morse || '—'}</div>
+        </div>
+        {result.letters.length > 0 && (
+          <ul className="mt-4 flex flex-wrap gap-1.5" aria-label="Decoded letters">
+            {result.letters.map((l, i) => (
+              <li
+                key={`${l.t_start}-${i}`}
+                title={`${l.code} → ${l.char}: ${STATUS_LABEL[l.status]} (${l.t_start.toFixed(2)} s)`}
+                className={`flex flex-col items-center min-w-9 px-2 py-1 rounded-[6px] border ${STATUS_STYLE[l.status]}`}
+              >
+                <span className="text-sm font-semibold font-heading">{l.char}</span>
+                <span className="font-mono text-[10px] opacity-80">{l.code}</span>
+                <span className="sr-only">{STATUS_LABEL[l.status]}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+    </>
+  );
+}
+
+/** No usable Morse: say so plainly, keep the raw detections out of the way. */
+function UnclearSignal({ result }: { result: DecodeResult }) {
+  const moves = result.quality.n_key_downs;
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-[8px] border border-[var(--ds-border)] bg-[var(--ds-surface-subtle)] px-4 py-3.5">
+        <p className="text-sm text-[var(--ds-text-primary)] font-medium">No Morse message in this recording</p>
+        <p className="mt-1 text-sm text-[var(--ds-text-secondary)]">
+          {moves > 0
+            ? `The cap picked up ${moves} bursts of muscle activity, but not as separate short and long clenches with pauses between them, so they don't spell anything. This is what talking or continuous movement looks like.`
+            : 'No usable movement signal was found.'}{' '}
+          Signal contrast {result.quality.separability.toFixed(2)} (Morse needs above 0.72).
+        </p>
+      </div>
+      {result.letters.length > 0 && (
+        <details className="group">
+          <summary className="cursor-pointer text-xs text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)] select-none">
+            Show raw detections (not a message)
+          </summary>
+          <div className="mt-4">
+            <DecodeDetails result={result} />
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 /** Everything the decoder found in one recording. */
 export function RecordingResult({ result, onSpeak, isSpeaking }: RecordingResultProps) {
   const sentenceInfo = result.sentence_types.length ? result.sentence_types.join(', ') : null;
@@ -193,36 +260,10 @@ export function RecordingResult({ result, onSpeak, isSpeaking }: RecordingResult
 
       <section className="ds-card rounded-[8px]" aria-label="Decoding steps">
         <SectionLabel>From signal to sentence</SectionLabel>
-        <Progression result={result} />
-        {result.corrections.length > 0 && (
-          <ul className="mt-4 flex flex-wrap gap-2 text-xs" aria-label="Word corrections">
-            {result.corrections.map((c, i) => (
-              <li key={`${c.from}-${i}`} className="px-2.5 py-1 rounded-[6px] border border-[var(--ds-border)] font-mono">
-                <span className="line-through text-[var(--ds-text-muted)]">{c.from}</span>
-                <span className="mx-1.5 text-[var(--ds-text-muted)]">→</span>
-                <span className="text-[var(--ds-text-primary)]">{c.to}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="mt-5">
-          <div className="text-[11px] text-[var(--ds-text-muted)] mb-1">Morse</div>
-          <div className="font-mono text-sm tracking-wider text-[var(--ds-text-secondary)] break-words">{result.morse || '—'}</div>
-        </div>
-        {result.letters.length > 0 && (
-          <ul className="mt-4 flex flex-wrap gap-1.5" aria-label="Decoded letters">
-            {result.letters.map((l, i) => (
-              <li
-                key={`${l.t_start}-${i}`}
-                title={`${l.code} → ${l.char}: ${STATUS_LABEL[l.status]} (${l.t_start.toFixed(2)} s)`}
-                className={`flex flex-col items-center min-w-9 px-2 py-1 rounded-[6px] border ${STATUS_STYLE[l.status]}`}
-              >
-                <span className="text-sm font-semibold font-heading">{l.char}</span>
-                <span className="font-mono text-[10px] opacity-80">{l.code}</span>
-                <span className="sr-only">{STATUS_LABEL[l.status]}</span>
-              </li>
-            ))}
-          </ul>
+        {result.reliable ? (
+          <DecodeDetails result={result} />
+        ) : (
+          <UnclearSignal result={result} />
         )}
       </section>
 
