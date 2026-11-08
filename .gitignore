@@ -12,6 +12,7 @@ dist/
 data/
 *.cnt
 *.evt
+*.seg
 *.edf
 *.bdf
 *.vhdr
