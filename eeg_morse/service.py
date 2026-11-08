@@ -105,6 +105,11 @@ class DecodeRequest:
     model: str | None = None
     expected: str | None = None
     sfreq: float | None = None
+    notes: tuple[str, ...] = ()  # session notes from the team (what was said), shown as-is
+
+
+class NoUsableEEG(ValueError):
+    """The file loaded but holds no usable EEG (e.g. the cap was not connected)."""
 
 
 MIN_SFREQ = 100.0  # the clench band reaches 95 Hz; below this there is nothing to measure
@@ -123,7 +128,7 @@ def validated(rec: eio.Recording) -> tuple[eio.Recording, list[str]]:
     usable = [i for i in eeg if np.isfinite(rec.data[i]).all()
               and 0 < float(np.std(rec.data[i])) < MAX_PLAUSIBLE_UV]
     if len(usable) < MIN_USABLE_CHANNELS:
-        raise ValueError(
+        raise NoUsableEEG(
             f"no usable EEG: only {len(usable)} of {len(eeg)} channels carry signal (the rest are flat "
             "or saturated). The cap was probably not connected during this recording.")
     finite = np.isfinite(rec.data).all(axis=1)
@@ -143,7 +148,11 @@ def validated(rec: eio.Recording) -> tuple[eio.Recording, list[str]]:
 def decode_file(req: DecodeRequest) -> dict:
     """Decode one staged recording into the API's `DecodeResult` shape."""
     model_name, cfg = load_model(req.model)
-    rec, input_warnings = validated(eio.load(req.path, sfreq=req.sfreq))
+    raw_rec = eio.load(req.path, sfreq=req.sfreq)
+    try:
+        rec, input_warnings = validated(raw_rec)
+    except NoUsableEEG as e:
+        return no_signal_result(raw_rec, req, model_name, str(e))
     cr = decode_clean(rec, cfg)
     res, tr = cr.result, cr.result.transcript
     reliable = res.thresholds.separability >= SEPARABILITY_MIN and bool(res.segments)
@@ -168,6 +177,7 @@ def decode_file(req: DecodeRequest) -> dict:
         "bad_channels": list(rec.bad_channels),
         "model": model_name,
         "reliable": reliable,
+        "session_notes": list(req.notes),
         "text": final.text,
         "raw_text": res.text,
         "corrected_text": fixed.upper_text,
@@ -189,4 +199,20 @@ def decode_file(req: DecodeRequest) -> dict:
         "timing": {"unit_s": _r(tr.unit_s, 4), "dash_threshold_s": _r(tr.dash_threshold_s, 4),
                    "letter_gap_s": _r(tr.letter_gap_s, 4), "word_gap_s": _r(tr.word_gap_s, 4)},
         "score": _score(fixed.upper_text, req.expected),
+    }
+
+
+def no_signal_result(rec: eio.Recording, req: DecodeRequest, model_name: str, reason: str) -> dict:
+    """Result for a file without usable EEG: nothing decoded, the reason as the first warning."""
+    return {
+        "file": req.display_name, "duration_s": _r(rec.duration, 2), "sfreq": float(rec.sfreq),
+        "n_channels": len(rec.ch_names), "channels_used": [], "bad_channels": list(rec.ch_names),
+        "model": model_name, "reliable": False, "session_notes": list(req.notes),
+        "text": "", "raw_text": "", "corrected_text": "", "morse": "", "sentence_types": [],
+        "corrections": [], "letters": [], "elements": [], "artifacts": [],
+        "trace": {"t": [], "activation": [], "lo": None, "hi": None},
+        "quality": {"separability": 0.0, "n_key_downs": 0, "n_artifacts": 0, "artifact_aware": False,
+                    "warnings": [reason[:1].upper() + reason[1:]]},
+        "timing": {"unit_s": 0.0, "dash_threshold_s": 0.0, "letter_gap_s": 0.0, "word_gap_s": 0.0},
+        "score": None,
     }
