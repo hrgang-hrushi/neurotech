@@ -220,7 +220,7 @@ def cmd_live(args) -> int:
 def cmd_serve(args) -> int:
     from .server import serve
 
-    serve(args.host, args.port)
+    serve(args.host, args.port, Path(args.notes_dir) if args.notes_dir else None)
     return 0
 
 
@@ -300,6 +300,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("serve", help="HTTP API for drag-and-drop decoding (dot-reader Recordings tab)")
     p.add_argument("--host", default="127.0.0.1", help="interface to bind (default: localhost only)")
     p.add_argument("--port", type=int, default=8770)
+    p.add_argument("--notes-dir", help="folder with <recording>.txt session notes (kept outside the repo); "
+                                       "they are shown whenever that recording is dropped")
     p.set_defaults(fn=cmd_serve)
 
     args = ap.parse_args(argv)

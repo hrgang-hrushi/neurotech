@@ -126,9 +126,18 @@ def check_npz(path: Path) -> None:
         raise UploadError(f"{path.name} unpacks to {unpacked // (1024 * 1024)} MB; too large to decode.", 413)
 
 
-def read_notes(recording: Path) -> list[str]:
-    """Session notes next to a staged recording: non-empty lines, trimmed and capped."""
+def read_notes(recording: Path, notes_dir: Path | None = None) -> list[str]:
+    """Session notes for a staged recording: an uploaded <stem>.txt, else <notes_dir>/<stem>.txt.
+
+    notes_dir is a folder on this laptop (outside the public repo) chosen when the
+    server starts, so dropping the recording alone is enough.
+    """
     path = recording.with_suffix(NOTES_EXT)
+    if not path.exists() and notes_dir is not None:
+        candidate = (notes_dir / (recording.stem + NOTES_EXT)).resolve()
+        inside = candidate.parent == notes_dir.resolve()
+        path = candidate if inside and candidate.is_file() and \
+            candidate.stat().st_size <= MAX_NOTES_BYTES else path
     if not path.exists():
         return []
     lines = (line.strip() for line in path.read_text(encoding="utf-8", errors="replace").splitlines())

@@ -99,7 +99,16 @@ def _parse_sfreq(value: str | None) -> float | None:
     return sfreq
 
 
-def create_app() -> FastAPI:
+NOTES_DIR_ENV = "EEG_MORSE_NOTES_DIR"
+
+
+def _notes_dir(explicit: Path | None) -> Path | None:
+    raw = explicit or (Path(os.environ[NOTES_DIR_ENV]) if os.environ.get(NOTES_DIR_ENV) else None)
+    return raw.expanduser() if raw else None
+
+
+def create_app(notes_dir: Path | None = None) -> FastAPI:
+    notes = _notes_dir(notes_dir)
     app = FastAPI(title="eeg_morse decoder", version="0.1.0")
     origins = _origins()
     app.middleware("http")(_guard(origins))
@@ -128,7 +137,7 @@ def create_app() -> FastAPI:
         if not _slots.acquire(blocking=False):
             return envelope(error="The decoder is busy with other files. Try again shortly.", status=429)
         try:
-            return _decode(files, model, expected, sfreq)
+            return _decode(files, model, expected, sfreq, notes)
         finally:
             _slots.release()
 
@@ -136,14 +145,14 @@ def create_app() -> FastAPI:
 
 
 def _decode(files: list[UploadFile], model: str | None, expected: str | None,
-            sfreq: str | None) -> JSONResponse:
+            sfreq: str | None, notes_dir: Path | None = None) -> JSONResponse:
     tmp = ""
     try:
         rate = _parse_sfreq(sfreq)
         with tempfile.TemporaryDirectory(prefix="eeg_upload_") as tmp:
             path = stage([Incoming(f.filename or "", f.file) for f in files], Path(tmp))
             req = DecodeRequest(path, safe_name(path.name), model, expected, rate,
-                                tuple(read_notes(path)))
+                                tuple(read_notes(path, notes_dir)))
             return envelope(decode_file(req))
     except UploadError as e:
         return envelope(error=str(e), status=e.status)
@@ -158,7 +167,7 @@ def _decode(files: list[UploadFile], model: str | None, expected: str | None,
         return envelope(error="Decoding failed unexpectedly. Check the decoder's terminal log.", status=500)
 
 
-def serve(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
+def serve(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, notes_dir: Path | None = None) -> None:
     import uvicorn
 
     if host not in LOOPBACK_HOSTS:
@@ -166,4 +175,6 @@ def serve(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
         raise ValueError(f"refusing to bind {host!r}: the decoder API is for this laptop only "
                          "(use 127.0.0.1)")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    uvicorn.run(create_app(), host=host, port=port, log_level="info", timeout_keep_alive=5)
+    if notes_dir is not None and not notes_dir.expanduser().is_dir():
+        raise ValueError(f"--notes-dir {notes_dir} is not a folder")
+    uvicorn.run(create_app(notes_dir), host=host, port=port, log_level="info", timeout_keep_alive=5)
