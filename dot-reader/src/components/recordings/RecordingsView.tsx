@@ -12,6 +12,20 @@ import {
 } from '@/lib/recordingApi';
 import { RecordingDropzone } from './RecordingDropzone';
 import { RecordingResult } from './RecordingResult';
+import { PROCESSING_STEPS, ProcessingSteps, STEP_MS, STEP_MS_REDUCED_MOTION } from './ProcessingSteps';
+
+/** Resolves after `ms`, or immediately when the signal aborts. */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+  });
+}
+
+function stepDuration(): number {
+  const reduce = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  return reduce ? STEP_MS_REDUCED_MOTION : STEP_MS;
+}
 import { useDecoderHealth, type DecoderStatus } from './useDecoderHealth';
 
 interface RecordingsViewProps {
@@ -65,6 +79,7 @@ export function RecordingsView({ onSpeak, isSpeaking }: RecordingsViewProps) {
   const [expected, setExpected] = useState('');
   const [model, setModel] = useState('clench');
   const [progress, setProgress] = useState('');
+  const [stage, setStage] = useState<{ file: string; index: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   usePreventStrayDrops();
 
@@ -92,8 +107,21 @@ export function RecordingsView({ onSpeak, isSpeaking }: RecordingsViewProps) {
       for (const [i, group] of groups.entries()) {
         if (controller.signal.aborted) return;
         setProgress(`Decoding ${group.main.name} (${i + 1} of ${groups.length})…`);
+        // The request runs in the background while the stages are shown one by one.
+        const request = decodeRecording(group, { expected: phrase, model: activeModel, signal: controller.signal })
+          .then((result) => ({ result }), (error: unknown) => ({ error }));
+        const ms = stepDuration();
+        for (let s = 0; s < PROCESSING_STEPS.length; s++) {
+          if (controller.signal.aborted) return;
+          setStage({ file: group.main.name, index: s });
+          setProgress(`${group.main.name}: ${PROCESSING_STEPS[s]}…`);
+          await pause(ms, controller.signal);
+        }
+        const outcome = await request;
+        setStage(null);
         try {
-          const result = await decodeRecording(group, { expected: phrase, model: activeModel, signal: controller.signal });
+          if ('error' in outcome) throw outcome.error;
+          const result = outcome.result;
           const id = `${group.stem}-${Date.now()}-${i}`;
           setHistory((prev) => [{ id, result }, ...prev].slice(0, MAX_HISTORY));
           setSelectedId(id);
@@ -207,7 +235,9 @@ export function RecordingsView({ onSpeak, isSpeaking }: RecordingsViewProps) {
         </div>
       )}
 
-      {selected ? (
+      {stage ? (
+        <ProcessingSteps fileName={stage.file} activeIndex={stage.index} />
+      ) : selected ? (
         <RecordingResult result={selected.result} onSpeak={onSpeak} isSpeaking={isSpeaking} />
       ) : (
         <div className="ds-empty text-center text-sm text-[var(--ds-text-muted)] py-8">
