@@ -61,3 +61,13 @@ def test_keyed_comma_does_not_hide_a_question():
 
 def test_stacked_keyed_marks():
     assert polish(["REALLY?!"]).text == "Really!"
+
+
+@pytest.mark.parametrize("words, expected", [
+    ("SEND AN EMAIL TO JOHN", "Send an email to John."),
+    ("CREATE A PR AND PUSH IT TO MAIN", "Create a PR and push it to main."),
+    ("CAN YOU FIX THIS", "Can you fix this?"),
+    ("CALL KEVIN", "Call Kevin."),
+])
+def test_names_and_acronyms_are_cased(words, expected):
+    assert polish(words.split()).text == expected

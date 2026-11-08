@@ -83,6 +83,7 @@ function ScoreBadge({ score }: { score: NonNullable<DecodeResult['score']> }) {
 export function RecordingResult({ result, onSpeak, isSpeaking }: RecordingResultProps) {
   const sentenceInfo = result.sentence_types.length ? result.sentence_types.join(', ') : null;
   const removed = result.artifacts;
+  const isSimulated = /^simulated/i.test(result.file);
 
   return (
     <div className="flex flex-col gap-6">
@@ -93,6 +94,16 @@ export function RecordingResult({ result, onSpeak, isSpeaking }: RecordingResult
           </h2>
           <span className="text-xs text-[var(--ds-text-muted)] shrink-0">model {result.model}</span>
         </div>
+        {isSimulated && (
+          <p
+            role="note"
+            className="mt-4 rounded-[8px] border border-[var(--ds-status-warning)] px-3 py-2 text-xs text-[var(--ds-status-warning)]"
+          >
+            <strong className="font-semibold">SIMULATED recording.</strong> Synthetic EEG of someone clenching this
+            phrase in Morse, with realistic blinks, eye movements and electrode pops added. The decoding is real; the
+            recording is not from a person.
+          </p>
+        )}
 
         <p className="my-7 text-3xl sm:text-4xl md:text-5xl font-semibold tracking-tight leading-tight font-heading text-[var(--ds-text-primary)] break-words select-text">
           {result.text || (
