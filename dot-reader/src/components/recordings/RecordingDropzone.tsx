@@ -7,12 +7,14 @@ import { ACCEPTED_EXTENSIONS } from '@/lib/recordingApi';
 interface RecordingDropzoneProps {
   onFiles: (files: File[]) => void;
   busy: boolean;
+  /** Current processing step, shown next to the loader. */
+  busyLabel?: string;
 }
 
 const carriesFiles = (e: React.DragEvent) => e.dataTransfer.types.includes('Files');
 
 /** Drag-and-drop or click/keyboard to pick recording files. */
-export function RecordingDropzone({ onFiles, busy }: RecordingDropzoneProps) {
+export function RecordingDropzone({ onFiles, busy, busyLabel }: RecordingDropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const hintId = useId();
   const [isOver, setIsOver] = useState(false);
@@ -32,7 +34,7 @@ export function RecordingDropzone({ onFiles, busy }: RecordingDropzoneProps) {
     if (!busy) inputRef.current?.click();
   };
 
-  const title = busy ? 'Decoding recording…' : isOver ? 'Release to upload' : 'Drop recordings here, or click to browse';
+  const title = busy ? busyLabel ?? 'Decoding recording…' : isOver ? 'Release to upload' : 'Drop recordings here, or click to browse';
 
   return (
     <div
@@ -78,11 +80,16 @@ export function RecordingDropzone({ onFiles, busy }: RecordingDropzoneProps) {
       }`}
     >
       {busy ? (
-        <Loader2 className="w-7 h-7 text-[var(--ds-chart-blue)] animate-spin" aria-hidden="true" />
+        <div className="flex items-center gap-3" role="status" aria-live="polite">
+          <Loader2 className="w-6 h-6 text-[var(--ds-chart-blue)] animate-spin motion-reduce:animate-none shrink-0" aria-hidden="true" />
+          <div className="text-base font-medium text-[var(--ds-text-primary)] font-heading">{title}</div>
+        </div>
       ) : (
-        <FileUp className="w-7 h-7 text-[var(--ds-chart-blue)]" aria-hidden="true" />
+        <>
+          <FileUp className="w-7 h-7 text-[var(--ds-chart-blue)]" aria-hidden="true" />
+          <div className="text-base font-medium text-[var(--ds-text-primary)] font-heading">{title}</div>
+        </>
       )}
-      <div className="text-base font-medium text-[var(--ds-text-primary)] font-heading">{title}</div>
       <p id={hintId} className="text-xs text-[var(--ds-text-muted)] max-w-lg leading-relaxed">
         Accepts {ACCEPTED_EXTENSIONS.join(' ')}. For eego files, drop the <span className="font-mono">.cnt</span> together
         with its <span className="font-mono">.evt</span> and <span className="font-mono">.seg</span> files (same name) so
