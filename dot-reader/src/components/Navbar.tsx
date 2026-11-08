@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { SegmentedControl } from './ui/SegmentedControl';
 
-export type ActiveTab = 'Message Studio' | 'Phrase Board' | 'EEG Monitor';
+export type ActiveTab = 'Recordings' | 'Message Studio' | 'Phrase Board' | 'EEG Monitor';
 export type Source = 'manual' | 'live' | 'replay';
 
 interface NavbarProps {
@@ -91,9 +91,10 @@ export function Navbar({
         </div>
 
         {/* Center: §7.11 Lane Switch / Segmented Control Tabs */}
-        <div className="hidden sm:flex items-center justify-center flex-1 max-w-md mx-auto">
+        <div className="hidden sm:flex items-center justify-center flex-1 max-w-xl mx-auto">
           <SegmentedControl<ActiveTab>
             options={[
+              { value: 'Recordings', label: 'Recordings' },
               { value: 'Message Studio', label: 'Message Studio' },
               { value: 'Phrase Board', label: 'Phrase Board' },
               { value: 'EEG Monitor', label: 'EEG Monitor' },
