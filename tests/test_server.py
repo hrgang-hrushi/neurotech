@@ -258,3 +258,16 @@ def test_clean_recording_is_reliable(question_npz):
     from eeg_morse.service import DecodeRequest, decode_file
     out = decode_file(DecodeRequest(question_npz, "q.npz"))
     assert out["reliable"] is True and out["text"] == "How are you?"
+
+
+def test_disconnected_cap_gets_a_clear_message(tmp_path):
+    """Real-data regression (Kevin, 8 Nov): 20 flat channels + 4 saturated ones."""
+    import numpy as np
+    from eeg_morse.service import DecodeRequest, decode_file
+    from eeg_morse.simulate import EEGO_32
+    data = np.zeros((len(EEGO_32), 500 * 20))
+    data[:4] = 40_000.0 + np.random.default_rng(0).normal(scale=8_000.0, size=(4, 500 * 20))
+    path = tmp_path / "disconnected.npz"
+    np.savez(path, data=data, sfreq=500.0, ch_names=np.array(EEGO_32))
+    with pytest.raises(ValueError, match="cap was probably not connected"):
+        decode_file(DecodeRequest(path, "disconnected.npz"))
