@@ -293,3 +293,17 @@ def test_no_notes_means_empty_list(client, question_npz):
     with question_npz.open("rb") as f:
         r = client.post("/api/recordings/decode", files={"files": ("q.npz", f)})
     assert r.json()["data"]["session_notes"] == []
+
+
+def test_notes_found_in_notes_dir_when_only_the_recording_is_dropped(question_npz, tmp_path):
+    from eeg_morse import server
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    (notes_dir / "session1.txt").write_text("Send an email to John\nCan you fix this?\n")
+    c = TestClient(server.create_app(notes_dir), base_url=LOCAL)
+    with question_npz.open("rb") as f:
+        r = c.post("/api/recordings/decode", files={"files": ("session1.npz", f)})
+    assert r.json()["data"]["session_notes"] == ["Send an email to John", "Can you fix this?"]
+    with question_npz.open("rb") as f:  # other recordings get nothing
+        r = c.post("/api/recordings/decode", files={"files": ("other.npz", f)})
+    assert r.json()["data"]["session_notes"] == []

@@ -156,6 +156,7 @@ For recorded sessions: drop the file on the dashboard and get a punctuated sente
 
 ```bash
 uv run eeg-morse serve                       # terminal 1: decoder API on http://127.0.0.1:8770
+#   add --notes-dir <folder> to show <recording>.txt session notes (what was said) when only the recording is dropped
 cd dot-reader && bun install && bun run dev  # terminal 2: open the Recordings tab
 ```
 
