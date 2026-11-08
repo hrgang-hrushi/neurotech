@@ -1,0 +1,153 @@
+/* §12 Design System Token Block */
+:root {
+  /* Surfaces & Backgrounds */
+  --ds-bg: #f8fafc;
+  --ds-surface: #ffffff;
+  --ds-surface-subtle: #f1f5f9;
+  --ds-surface-hover: #e2e8f0;
+  --ds-surface-active: #cbd5e1;
+
+  /* Borders & Dividers */
+  --ds-border: #e2e8f0;
+  --ds-border-strong: #94a3b8;
+  --ds-border-subtle: #f1f5f9;
+  --ds-border-focus: #2563eb;
+
+  /* Text & Glyphs */
+  --ds-text-primary: #0f172a;
+  --ds-text-secondary: #475569;
+  --ds-text-muted: #64748b;
+  --ds-text-disabled: #94a3b8;
+
+  /* Primary Accent & Next-Step Actions (§7.2) */
+  --ds-accent: #0f172a;
+  --ds-accent-hover: #1e293b;
+  --ds-accent-subtle: #f1f5f9;
+  --ds-accent-text: #ffffff;
+
+  /* Blue Tint Avatar & Marks (§6.2) - #8FADE3 */
+  --ds-chart-blue: #8FADE3;
+  --ds-progress-blue: #8FADE3;
+  --ds-blue-tint-bg: rgba(143, 173, 227, 0.14);
+  --ds-blue-tint-border: rgba(143, 173, 227, 0.32);
+  --ds-blue-tint-text: #8FADE3;
+
+  /* Status Colors & Stage Dots (§4.3) */
+  --ds-status-success: #16a34a;
+  --ds-status-success-subtle: #f0fdf4;
+  --ds-status-warning: #d97706;
+  --ds-status-error: #dc2626;
+  --ds-status-info: #8FADE3;
+
+  /* Sizing & Components (§6.1, §6.2) */
+  --ds-header-height: 64px;
+  --ds-circle-size: 40px;
+  --ds-pill-height: 40px;
+
+  /* Spacing Scale (4px baseline) */
+  --ds-space-1: 4px;
+  --ds-space-2: 8px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-5: 20px;
+  --ds-space-6: 24px;
+  --ds-space-8: 32px;
+  --ds-space-10: 40px;
+  --ds-space-12: 48px;
+
+  /* Radii Scale - Unified 8px Precision (§sm 8) */
+  --ds-radius-sm: 4px;
+  --ds-radius-md: 8px;
+  --ds-radius-lg: 8px;
+  --ds-radius-xl: 8px;
+  --ds-radius-full: 8px;
+
+  /* Typography Scale (§3.1) - Author for headings & subs */
+  --ds-font-heading: var(--font-author), var(--font-inter), system-ui, sans-serif;
+  --ds-font-subheading: var(--font-author), var(--font-inter), system-ui, sans-serif;
+  --ds-font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
+  --ds-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --ds-text-xs: 0.75rem;
+  --ds-text-sm: 0.875rem;
+  --ds-text-base: 1rem;
+  --ds-text-lg: 1.125rem;
+  --ds-text-xl: 1.25rem;
+  --ds-text-2xl: 1.5rem;
+  --ds-text-3xl: 1.875rem;
+  --ds-text-4xl: 2.25rem;
+  --ds-weight-normal: 400;
+  --ds-weight-medium: 500;
+  --ds-weight-semibold: 600;
+
+  /* Chart Theming Tokens - #8FADE3 */
+  --chart-line-primary: #8FADE3;
+  --chart-line-secondary: #059669;
+  --chart-grid: rgba(0, 0, 0, 0.05);
+  --chart-crosshair: rgba(143, 173, 227, 0.4);
+  --chart-dot: #8FADE3;
+  --chart-badge-bg: #ffffff;
+  --chart-badge-text: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+
+  /* Subtle Layered Shadows */
+  --ds-shadow-card: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+  --ds-shadow-elevated: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Dark Mode Overrides */
+.dark, [data-theme="dark"], html.dark {
+  /* Surfaces & Backgrounds */
+  --ds-bg: #09090b;
+  --ds-surface: #121215;
+  --ds-surface-subtle: #18181b;
+  --ds-surface-hover: #222226;
+  --ds-surface-active: #2a2a30;
+
+  /* Borders & Dividers */
+  --ds-border: rgba(255, 255, 255, 0.08);
+  --ds-border-strong: rgba(255, 255, 255, 0.18);
+  --ds-border-subtle: rgba(255, 255, 255, 0.04);
+  --ds-border-focus: #3b82f6;
+
+  /* Text & Glyphs */
+  --ds-text-primary: #f4f4f5;
+  --ds-text-secondary: #a1a1aa;
+  --ds-text-muted: #71717a;
+  --ds-text-disabled: #52525b;
+
+  /* Primary Accent & Next-Step Actions (§7.2) */
+  --ds-accent: #f4f4f5;
+  --ds-accent-hover: #e4e4e7;
+  --ds-accent-subtle: rgba(255, 255, 255, 0.06);
+  --ds-accent-text: #09090b;
+
+  /* Blue Tint Avatar & Marks (§6.2) - #8FADE3 */
+  --ds-chart-blue: #8FADE3;
+  --ds-progress-blue: #8FADE3;
+  --ds-blue-tint-bg: rgba(143, 173, 227, 0.14);
+  --ds-blue-tint-border: rgba(143, 173, 227, 0.3);
+  --ds-blue-tint-text: #8FADE3;
+
+  /* Status Colors & Stage Dots (§4.3) */
+  --ds-status-success: #22c55e;
+  --ds-status-success-subtle: rgba(34, 197, 94, 0.14);
+  --ds-status-warning: #f59e0b;
+  --ds-status-error: #ef4444;
+  --ds-status-info: #8FADE3;
+
+  /* Chart Theming Tokens Dark - #8FADE3 */
+  --chart-line-primary: #8FADE3;
+  --chart-line-secondary: #34d399;
+  --chart-grid: rgba(255, 255, 255, 0.05);
+  --chart-crosshair: rgba(143, 173, 227, 0.4);
+  --chart-dot: #8FADE3;
+  --chart-badge-bg: #18181b;
+  --chart-badge-text: #f4f4f5;
+  --popover: #18181b;
+  --popover-foreground: #f4f4f5;
+
+  /* Shadows */
+  --ds-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --ds-shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.6);
+}

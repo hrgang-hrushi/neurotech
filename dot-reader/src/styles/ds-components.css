@@ -1,0 +1,271 @@
+/* §Design System Component Classes ported from Specimen */
+
+/* Typography: Headings & Subheadings using Author font */
+h1, h2, h3, h4, h5, h6, .font-heading, .ds-heading {
+  font-family: var(--ds-font-heading);
+  letter-spacing: -0.015em;
+}
+
+.font-subheading, .ds-subheading, .subheading {
+  font-family: var(--ds-font-subheading);
+  letter-spacing: -0.01em;
+}
+
+/* §6.1 64px Top Bar - Full Width & Expanded */
+.ds-topbar {
+  height: var(--ds-header-height);
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--ds-border);
+  background-color: var(--ds-bg);
+  width: 100%;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* §6.2 40px Circles, Pills, and Blue-Tint Avatar */
+.ds-circle {
+  width: var(--ds-circle-size);
+  height: var(--ds-circle-size);
+  border-radius: var(--ds-radius-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background-color: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  color: var(--ds-text-primary);
+  transition: background-color 150ms ease-out, border-color 150ms ease-out;
+}
+
+.ds-circle:hover {
+  background-color: var(--ds-surface-hover);
+}
+
+.ds-pill {
+  height: var(--ds-pill-height);
+  padding: 0 var(--ds-space-4);
+  border-radius: var(--ds-radius-full);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  white-space: nowrap;
+  flex-shrink: 0;
+  background-color: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  color: var(--ds-text-primary);
+  font-size: var(--ds-text-sm);
+  font-weight: var(--ds-weight-medium);
+  transition: background-color 150ms ease-out, border-color 150ms ease-out;
+}
+
+.ds-pill:hover {
+  background-color: var(--ds-surface-hover);
+  border-color: var(--ds-border-strong);
+}
+
+.ds-avatar-blue {
+  width: var(--ds-circle-size);
+  height: var(--ds-circle-size);
+  border-radius: var(--ds-radius-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--ds-blue-tint-bg);
+  border: 1px solid var(--ds-blue-tint-border);
+  color: var(--ds-blue-tint-text);
+  font-family: var(--ds-font-mono);
+  font-weight: var(--ds-weight-semibold);
+  font-size: var(--ds-text-sm);
+}
+
+/* §4.3 Stage Dots & Status with Words */
+.ds-stage-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--ds-radius-full);
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.ds-stage-dot-success {
+  background-color: var(--ds-status-success);
+}
+
+.ds-stage-dot-warning {
+  background-color: var(--ds-status-warning);
+}
+
+.ds-stage-dot-info {
+  background-color: var(--ds-status-info);
+}
+
+.ds-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  font-size: var(--ds-text-xs);
+  color: var(--ds-text-secondary);
+}
+
+/* §7.5 Card Surface */
+.ds-card {
+  background-color: var(--ds-surface);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-xl);
+  box-shadow: var(--ds-shadow-card);
+  padding: var(--ds-space-6);
+  transition: border-color 150ms ease-out;
+}
+
+/* §7.1 Button Variants - Watermelon UI Pill System */
+.ds-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-2);
+  height: 40px;
+  padding: 0 20px;
+  border-radius: var(--ds-radius-full);
+  font-size: var(--ds-text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 120ms cubic-bezier(0.2, 0, 0, 1), background-color 150ms ease-out, border-color 150ms ease-out, color 150ms ease-out, opacity 150ms ease-out;
+  border: 1px solid transparent;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.ds-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.ds-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Primary Pill: One solid button per group (White pill in dark mode / Black in light mode) */
+.ds-btn-primary {
+  background-color: var(--ds-accent);
+  color: var(--ds-accent-text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.ds-btn-primary:hover:not(:disabled) {
+  background-color: var(--ds-accent-hover);
+}
+
+/* Large Primary Pill: 48px height, 24px padding */
+.ds-btn-large-primary {
+  height: 48px;
+  padding: 0 24px;
+  border-radius: var(--ds-radius-full);
+  font-size: var(--ds-text-base);
+  font-weight: 500;
+  background-color: var(--ds-accent);
+  color: var(--ds-accent-text);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.ds-btn-large-primary:hover:not(:disabled) {
+  background-color: var(--ds-accent-hover);
+}
+
+/* Secondary / Light Gray Pill */
+.ds-btn-secondary {
+  background-color: var(--ds-surface-subtle);
+  border: 1px solid var(--ds-border-subtle);
+  color: var(--ds-text-primary);
+}
+
+.ds-btn-secondary:hover:not(:disabled) {
+  background-color: var(--ds-surface-hover);
+  border-color: var(--ds-border);
+}
+
+/* Outlined Pill */
+.ds-btn-outline {
+  background-color: transparent;
+  border: 1px solid var(--ds-border-strong);
+  color: var(--ds-text-primary);
+}
+
+.ds-btn-outline:hover:not(:disabled) {
+  background-color: var(--ds-surface-subtle);
+  border-color: var(--ds-text-primary);
+}
+
+/* Ghost Pill */
+.ds-btn-ghost {
+  background-color: transparent;
+  border-color: transparent;
+  color: var(--ds-text-secondary);
+}
+
+.ds-btn-ghost:hover:not(:disabled) {
+  background-color: var(--ds-surface-hover);
+  color: var(--ds-text-primary);
+}
+
+/* Destructive / Delete Pill */
+.ds-btn-destructive {
+  background-color: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+
+.ds-btn-destructive:hover:not(:disabled) {
+  background-color: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+/* Quiet State (Done / Read-only) */
+.ds-btn-quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  height: 40px;
+  padding: 0 16px;
+  font-size: var(--ds-text-sm);
+  color: var(--ds-text-muted);
+}
+
+/* §7.2 One-Tap Next-Step Button (Top of queue: solid pill, rest outlined) */
+.ds-btn-next-step {
+  height: 48px;
+  padding: 0 24px;
+  border-radius: var(--ds-radius-full);
+  background-color: var(--ds-accent);
+  color: var(--ds-accent-text);
+  font-size: var(--ds-text-base);
+  font-weight: 500;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.ds-btn-next-step:hover:not(:disabled) {
+  background-color: var(--ds-accent-hover);
+}
+
+/* §7.6 Tiles & Metrics */
+.ds-tile {
+  background-color: var(--ds-surface-subtle);
+  border: 1px solid var(--ds-border-subtle);
+  border-radius: var(--ds-radius-lg);
+  padding: var(--ds-space-4);
+}
+
+/* §7.13 Empty State */
+.ds-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--ds-space-10) var(--ds-space-6);
+  color: var(--ds-text-muted);
+}
