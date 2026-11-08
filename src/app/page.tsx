@@ -1,69 +1,143 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import React, { useState, useEffect, useRef } from 'react';
+import { Navbar, ActiveTab, Source } from '@/components/Navbar';
+import { MessageStudio } from '@/components/MessageStudio';
+import { PhraseBoard } from '@/components/PhraseBoard';
+import { EegMonitor } from '@/components/EegMonitor';
+import { ShortcutsModal } from '@/components/ShortcutsModal';
+import { createMorseController, MorseController, MorseSnapshot, speakText } from '@/lib/morse';
+
+export default function DotReaderApp() {
+  const [activeTab, setActiveTab] = useState<ActiveTab>('Message Studio');
+  const [source, setSource] = useState<Source>('manual');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash.toLowerCase();
+      if (hash.includes('phrase')) setActiveTab('Phrase Board');
+      else if (hash.includes('eeg')) setActiveTab('EEG Monitor');
+    }
+  }, []);
+  const [autoSpeak, setAutoSpeak] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [recentMessages, setRecentMessages] = useState<string[]>([
+    'I NEED WATER',
+    'THANK YOU',
+  ]);
+
+  const [morseState, setMorseState] = useState<MorseSnapshot>({
+    pendingSymbols: '',
+    writtenMorse: '',
+    text: '',
+    decoderState: 'Ready for a symbol (use keys . and -)',
+  });
+
+  const controllerRef = useRef<MorseController | null>(null);
+
+  // Initialize Morse Decoder Controller
+  useEffect(() => {
+    controllerRef.current = createMorseController((snap) => {
+      setMorseState(snap);
+      if (snap.spokenWord && autoSpeak) {
+        handleSpeak(snap.spokenWord);
+      }
+    });
+
+    return () => {
+      // cleanup if needed
+    };
+  }, [autoSpeak]);
+
+  // Voice vocalization helper
+  const handleSpeak = (textToSpeak: string) => {
+    const trimmed = textToSpeak.trim();
+    if (!trimmed) return;
+    setIsSpeaking(true);
+    setRecentMessages((prev) => [trimmed, ...prev.filter((m) => m !== trimmed)].slice(0, 6));
+    speakText(trimmed, () => setIsSpeaking(false));
+  };
+
+  // Keyboard shortcut listener for BCI triggers
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === '.' || e.key === 'd' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        controllerRef.current?.symbol('.');
+      } else if (e.key === '-' || e.key === '_' || e.key === 'f' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        controllerRef.current?.symbol('-');
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        controllerRef.current?.commitLetter();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        controllerRef.current?.commitWord();
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        controllerRef.current?.backspace();
+      } else if (e.key === 'Escape') {
+        setIsHelpOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const handlePhraseSelect = (phrase: string) => {
+    controllerRef.current?.loadText(phrase);
+    handleSpeak(phrase);
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+    <div className="w-full min-h-screen bg-[var(--ds-bg)] text-[var(--ds-text-primary)] flex flex-col selection:bg-white/20 selection:text-white">
+      {/* 1. Full-Width Expanded Top Navigation Bar */}
+      <Navbar
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        source={source}
+        onSourceChange={setSource}
+        isSpeaking={isSpeaking}
+        onOpenHelp={() => setIsHelpOpen(true)}
+      />
+
+      {/* 2. Main Tab View (Expanded to max-w-6xl with Balanced Spacing) */}
+      <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8 flex-1">
+        {activeTab === 'Message Studio' && (
+          <MessageStudio
+            text={morseState.text}
+            writtenMorse={morseState.writtenMorse}
+            pendingSymbols={morseState.pendingSymbols}
+            decoderState={morseState.decoderState}
+            autoSpeak={autoSpeak}
+            onToggleAutoSpeak={() => setAutoSpeak(!autoSpeak)}
+            onSymbol={(val) => controllerRef.current?.symbol(val)}
+            onCommitLetter={() => controllerRef.current?.commitLetter()}
+            onCommitWord={() => controllerRef.current?.commitWord()}
+            onBackspace={() => controllerRef.current?.backspace()}
+            onClear={() => controllerRef.current?.clear()}
+            onSpeak={() => handleSpeak(morseState.text)}
+            recentMessages={recentMessages}
+            onSelectRecent={handleSpeak}
+          />
+        )}
+
+        {activeTab === 'Phrase Board' && (
+          <PhraseBoard
+            onSpeakPhrase={handlePhraseSelect}
+            activePhrase={morseState.text}
+          />
+        )}
+
+        {activeTab === 'EEG Monitor' && <EegMonitor />}
       </main>
+
+      {/* 3. Shortcuts Modal */}
+      <ShortcutsModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
     </div>
   );
 }
