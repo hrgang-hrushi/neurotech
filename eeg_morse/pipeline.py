@@ -17,7 +17,7 @@ from . import morse
 from .config import PipelineConfig
 from .detect import Segment, Thresholds, detect
 from .io import Recording
-from .signal import Activation, activation, channel_separability
+from .signal import Activation, activation, channel_separability, find_bad_channels
 from .timing import Transcript, transcribe
 
 
@@ -102,10 +102,28 @@ def decode(rec: Recording, cfg: PipelineConfig, correct: bool = True,
     dcfg = copy.deepcopy(cfg.detect)
     if not fixed_thresholds:
         dcfg.lo = dcfg.hi = None
+    ensure_bad_channels(rec)
     act = act if act is not None else activation(rec, cfg.feature)
-    segs, th = detect(act.t, act.values, act.rate, dcfg)
-    tr = transcribe(segs, cfg.timing, correct)
-    return Result(rec, cfg, act, segs, th, tr, _quality_warnings(th, segs, rec.duration))
+    segs, th = detect(act.t, act.values, act.rate, dcfg, act.seg_slices)
+    tr = transcribe(segs, cfg.timing, correct, breaks=segment_breaks(rec))
+    warns = _quality_warnings(th, segs, rec.duration)
+    if rec.bad_channels:
+        warns.append(f"Excluded bad channels (impedance/amplitude): {', '.join(rec.bad_channels)}")
+    return Result(rec, cfg, act, segs, th, tr, warns)
+
+
+def ensure_bad_channels(rec: Recording) -> list[str]:
+    """Detect bad channels once per recording (kept on rec.bad_channels)."""
+    if not getattr(rec, "_bad_checked", False):
+        bad, noisy = find_bad_channels(rec)
+        rec.bad_channels = sorted(set(rec.bad_channels) | set(bad), key=rec.ch_names.index)
+        rec.noisy_channels = sorted(set(rec.noisy_channels) | set(noisy), key=rec.ch_names.index)
+        rec._bad_checked = True
+    return rec.bad_channels
+
+
+def segment_breaks(rec: Recording) -> list[float]:
+    return [a / rec.sfreq for a, _ in rec.segments[1:]]
 
 
 def _similarity(a: str, b: str) -> float:
@@ -167,7 +185,8 @@ def calibrate(rec: Recording, cfg: PipelineConfig, expected_text: str,
     defaults = (1.0, cfg.detect.hysteresis, cfg.timing.dash_ratio,
                 cfg.timing.letter_gap_ratio, cfg.timing.word_gap_ratio)
     # Candidate channel sets: the preset's channels, the 3 best, the single best.
-    ranked = [name for name, _ in channel_separability(rec, cfg.feature)]
+    ensure_bad_channels(rec)
+    ranked = [name for name, _ in channel_separability(rec, cfg.feature, cfg.detect.settle_s)]
     subsets: list[list[str]] = []
     for s in (ranked, ranked[:3], ranked[:1]):
         if s and s not in subsets:
@@ -182,14 +201,14 @@ def calibrate(rec: Recording, cfg: PipelineConfig, expected_text: str,
         for hi_, h in enumerate(hysteresis):
             c1.detect.hysteresis = h
             c1.detect.lo = c1.detect.hi = None
-            segs, th = detect(act.t, act.values, act.rate, c1.detect)
+            segs, th = detect(act.t, act.values, act.rate, c1.detect, act.seg_slices)
             for ti, (dr, lg, wg) in enumerate(itertools.product(dash_ratios, letter_gap_ratios,
                                                                 word_gap_ratios)):
                 if wg <= lg:
                     continue
                 tried += 1
                 c1.timing.dash_ratio, c1.timing.letter_gap_ratio, c1.timing.word_gap_ratio = dr, lg, wg
-                tr = transcribe(segs, c1.timing, correct=False)
+                tr = transcribe(segs, c1.timing, correct=False, breaks=segment_breaks(rec))
                 ts, ms = _similarity(tr.text, expected_text), _similarity(tr.morse, exp_morse)
                 dist = float(np.sum(np.abs(np.log(np.array((sf, h, dr, lg, wg)) / np.array(defaults)))))
                 entries[(rank, si, hi_, ti)] = (copy.deepcopy(c1), act, segs, th, tr, ts, ms, dist)

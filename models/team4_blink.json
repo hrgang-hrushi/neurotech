@@ -1,0 +1,41 @@
+{
+  "feature": {
+    "channels": [
+      "Fp1",
+      "Fp2"
+    ],
+    "band": [
+      0.0,
+      8.0
+    ],
+    "direction": "increase",
+    "reference": "car",
+    "line_freq": 60.0,
+    "smooth_s": 0.15,
+    "env_rate": 50.0,
+    "measure": "amplitude",
+    "baseline_s": 10.0,
+    "baseline_pct": 25.0,
+    "normalize": "segment"
+  },
+  "detect": {
+    "hysteresis": 0.25,
+    "min_on_s": 0.1,
+    "min_off_s": 0.1,
+    "edge_s": 0.5,
+    "settle_s": 2.5,
+    "lo": 151.6334371127825,
+    "hi": 238.4742711544873,
+    "rest_level": 21.43084720141803
+  },
+  "timing": {
+    "unit_s": 0.4295,
+    "default_unit_s": 0.4,
+    "bias_s": 0.0,
+    "min_dot_ratio": 0.4,
+    "dash_ratio": 2.0,
+    "letter_gap_ratio": 2.0,
+    "word_gap_ratio": 5.0
+  },
+  "preset": "trained:blink"
+}
