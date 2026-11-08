@@ -496,21 +496,16 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "antio" },
-    { name = "braindecode" },
     { name = "fastapi" },
-    { name = "joblib" },
     { name = "matplotlib" },
     { name = "mne" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pandas" },
     { name = "pylsl" },
-    { name = "pyriemann" },
     { name = "python-multipart" },
-    { name = "scikit-learn" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "torch" },
     { name = "uvicorn" },
     { name = "wordfreq" },
 ]
@@ -529,26 +524,28 @@ dev = [
     { name = "httpx" },
     { name = "pytest" },
 ]
+eegmove = [
+    { name = "braindecode" },
+    { name = "joblib" },
+    { name = "pyriemann" },
+    { name = "scikit-learn" },
+    { name = "torch" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "antio", specifier = ">=0.5" },
-    { name = "braindecode", specifier = ">=1.2" },
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "joblib", specifier = ">=1.4" },
     { name = "matplotlib", specifier = ">=3.6" },
     { name = "mne", specifier = ">=1.9" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pandas", specifier = ">=1.5" },
     { name = "pylsl", specifier = ">=1.17" },
-    { name = "pyriemann", specifier = ">=0.8" },
     { name = "pytest", marker = "extra == 'all'", specifier = ">=8" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "pyxdf", marker = "extra == 'all'" },
     { name = "pyxdf", marker = "extra == 'xdf'" },
-    { name = "scikit-learn", specifier = ">=1.5" },
     { name = "scipy", specifier = ">=1.13" },
-    { name = "torch", specifier = ">=2.4" },
     { name = "uvicorn", specifier = ">=0.30" },
     { name = "wordfreq", specifier = ">=3.1.1" },
 ]
@@ -558,6 +555,13 @@ provides-extras = ["xdf", "all"]
 dev = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pytest", specifier = ">=8" },
+]
+eegmove = [
+    { name = "braindecode", specifier = ">=1.2" },
+    { name = "joblib", specifier = ">=1.4" },
+    { name = "pyriemann", specifier = ">=0.8" },
+    { name = "scikit-learn", specifier = ">=1.5" },
+    { name = "torch", specifier = ">=2.4" },
 ]
 
 [[package]]

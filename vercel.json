@@ -4,7 +4,12 @@
     "decoder": {
       "root": ".",
       "framework": "fastapi",
-      "entrypoint": "eeg_morse.asgi:app"
+      "entrypoint": "eeg_morse.asgi:app",
+      "functions": {
+        "eeg_morse/asgi.py": {
+          "excludeFiles": "{dot-reader/**,web/**,tests/**,examples/**,docs/**,scripts/**,data/**,artifacts/**,morse_bci2_copy}"
+        }
+      }
     },
     "dashboard": {
       "root": "dot-reader",
