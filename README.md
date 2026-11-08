@@ -238,7 +238,7 @@ ANT network may have no internet.
 ```bash
 git clone https://github.com/hrgang-hrushi/neurotech.git
 cd neurotech
-uv sync
+uv sync --all-extras   # includes eegmove's torch/braindecode (the `eegmove` extra)
 uv run eegmove fetch --imagined
 uv run eegmove doctor
 ```

@@ -13,7 +13,9 @@ Two packages install side by side from one `pyproject.toml` and share nothing at
 
 Rules:
 
-- `uv sync`, then `uv run pytest` runs the tests for both packages.
+- `uv sync --all-extras`, then `uv run pytest` runs the tests for both packages. `eegmove`'s heavy
+  dependencies (torch etc.) are the `eegmove` extra so hosted `eeg_morse` deploys stay small;
+  plain `uv sync` leaves them out.
 - `eegmove` preprocessing must stay causal and shared between offline and live code.
   `tests/test_signal.py` enforces this, so don't add zero-phase filtering to `src/eegmove/`.
 - `eeg_morse` filters zero-phase offline (`decode`, `calibrate`, `train`) and causally only in

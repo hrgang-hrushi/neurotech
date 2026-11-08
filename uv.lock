@@ -515,6 +515,13 @@ all = [
     { name = "pytest" },
     { name = "pyxdf" },
 ]
+eegmove = [
+    { name = "braindecode" },
+    { name = "joblib" },
+    { name = "pyriemann" },
+    { name = "scikit-learn" },
+    { name = "torch" },
+]
 xdf = [
     { name = "pyxdf" },
 ]
@@ -524,44 +531,35 @@ dev = [
     { name = "httpx" },
     { name = "pytest" },
 ]
-eegmove = [
-    { name = "braindecode" },
-    { name = "joblib" },
-    { name = "pyriemann" },
-    { name = "scikit-learn" },
-    { name = "torch" },
-]
 
 [package.metadata]
 requires-dist = [
     { name = "antio", specifier = ">=0.5" },
+    { name = "braindecode", marker = "extra == 'eegmove'", specifier = ">=1.2" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "joblib", marker = "extra == 'eegmove'", specifier = ">=1.4" },
     { name = "matplotlib", specifier = ">=3.6" },
     { name = "mne", specifier = ">=1.9" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pandas", specifier = ">=1.5" },
     { name = "pylsl", specifier = ">=1.17" },
+    { name = "pyriemann", marker = "extra == 'eegmove'", specifier = ">=0.8" },
     { name = "pytest", marker = "extra == 'all'", specifier = ">=8" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "pyxdf", marker = "extra == 'all'" },
     { name = "pyxdf", marker = "extra == 'xdf'" },
+    { name = "scikit-learn", marker = "extra == 'eegmove'", specifier = ">=1.5" },
     { name = "scipy", specifier = ">=1.13" },
+    { name = "torch", marker = "extra == 'eegmove'", specifier = ">=2.4" },
     { name = "uvicorn", specifier = ">=0.30" },
     { name = "wordfreq", specifier = ">=3.1.1" },
 ]
-provides-extras = ["xdf", "all"]
+provides-extras = ["xdf", "eegmove", "all"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pytest", specifier = ">=8" },
-]
-eegmove = [
-    { name = "braindecode", specifier = ">=1.2" },
-    { name = "joblib", specifier = ">=1.4" },
-    { name = "pyriemann", specifier = ">=0.8" },
-    { name = "scikit-learn", specifier = ">=1.5" },
-    { name = "torch", specifier = ">=2.4" },
 ]
 
 [[package]]

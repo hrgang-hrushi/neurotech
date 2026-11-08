@@ -7,7 +7,7 @@ SignalSpeak turns decoded movement into Morse text or a selected phrase. The mes
 Install the dependencies before joining the ANT router. It may have no internet.
 
 ```bash
-uv sync --locked
+uv sync --locked --all-extras
 npm --prefix web ci
 npm --prefix web run dev
 ```

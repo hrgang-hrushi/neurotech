@@ -21,6 +21,9 @@ dependencies = [
 
 [project.optional-dependencies]
 xdf = ["pyxdf"]                  # read LabRecorder .xdf files (eeg_morse)
+# eegmove's decoders. torch is ~600 MB (~5 GB with CUDA on Linux), so it stays out
+# of hosted deploys of the eeg_morse decoder. Locally: `uv sync --all-extras`.
+eegmove = ["braindecode>=1.2", "joblib>=1.4", "pyriemann>=0.8", "scikit-learn>=1.5", "torch>=2.4"]
 all = ["pyxdf", "pytest>=8"]     # pip install -e ".[all]"
 
 [project.scripts]
@@ -32,19 +35,7 @@ dev = [
     "httpx>=0.28.1",
     "pytest>=8",
 ]
-# eegmove's decoders (torch is ~600 MB, ~5 GB with CUDA on Linux). Installed by a
-# plain `uv sync` (see default-groups) but left out of hosted deploys of the
-# eeg_morse decoder, which only installs the required dependencies.
-eegmove = [
-    "braindecode>=1.2",
-    "joblib>=1.4",
-    "pyriemann>=0.8",
-    "scikit-learn>=1.5",
-    "torch>=2.4",
-]
 
-[tool.uv]
-default-groups = ["dev", "eegmove"]
 
 [build-system]
 requires = ["hatchling"]
