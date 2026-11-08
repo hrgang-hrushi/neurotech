@@ -162,6 +162,8 @@ cd dot-reader && bun install && bun run dev  # terminal 2: open the Recordings t
 
 Drop an eego `.cnt` **together with its `.evt` and `.seg`** (same name), or a single `.edf/.bdf/.fif/.xdf/.npz/.csv`. Type the phrase that was sent into "Expected phrase" to get a character error rate. The `clench` model is `models/team4_clench.json` (falls back to the preset). Set `NEXT_PUBLIC_DECODER_URL` if the API runs elsewhere, and `DECODER_CORS_ORIGINS` (comma-separated) if the dashboard runs on a port other than 3000/3088/3089.
 
+**Deploying on Vercel.** `vercel.json` defines two services: `dashboard` (dot-reader, public at `/`) and `decoder` (`eeg_morse.asgi:app`, public at `/api/*`). Import the repo with the project root at the **repository root** and production branch `main`. Hosted uploads are capped at 4 MB (Vercel's request limit), session notes only appear if the `.txt` is dropped with the recording, and live/replay modes need the local bridge. Set `DECODER_ALLOWED_HOSTS` for a custom domain; the deployment's own `*.vercel.app` hosts are trusted automatically.
+
 What happens to an upload:
 
 1. **Artifacts** (`artifacts.py`, `clean_decode.py`). Blinks (Fp1/Fp2 deflections), saccades (fast F7−F8 steps) and electrode pops (one electrode jumping) are found first. Blink and saccade *muscle* bursts are broadband like a clench and land on the same frontal sites (F3/F4/F7 on our cap), so they are regressed out of every channel's band power: each channel carries a fixed share of the frontopolar EMG, estimated at eye-event peaks. Popping electrodes are replaced by the median of the others for that stretch. Clench channels are then re-chosen per recording. Frontopolar channels are never used for the clench.

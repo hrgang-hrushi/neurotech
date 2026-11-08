@@ -307,3 +307,40 @@ def test_notes_found_in_notes_dir_when_only_the_recording_is_dropped(question_np
     with question_npz.open("rb") as f:  # other recordings get nothing
         r = c.post("/api/recordings/decode", files={"files": ("other.npz", f)})
     assert r.json()["data"]["session_notes"] == []
+
+
+# --- hosted (Vercel) mode ----------------------------------------------------------
+
+@pytest.fixture
+def hosted(monkeypatch):
+    from eeg_morse import server
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("VERCEL_URL", "neurotech-abc123.vercel.app")
+    monkeypatch.setenv("VERCEL_PROJECT_PRODUCTION_URL", "neurotech.vercel.app")
+    return TestClient(server.create_app(), base_url="https://neurotech.vercel.app")
+
+
+def test_hosted_accepts_its_own_domain_and_origin(hosted, question_npz):
+    assert hosted.get("/api/health").status_code == 200
+    with question_npz.open("rb") as f:
+        r = hosted.post("/api/recordings/decode", files={"files": ("q.npz", f)},
+                        headers={"Origin": "https://neurotech.vercel.app"})
+    assert r.status_code == 200 and r.json()["data"]["text"] == "How are you?"
+
+
+def test_hosted_still_rejects_foreign_hosts_and_origins(hosted, question_npz):
+    assert hosted.get("/api/health", headers={"Host": "evil.example.com"}).status_code == 400
+    with question_npz.open("rb") as f:
+        r = hosted.post("/api/recordings/decode", files={"files": ("q.npz", f)},
+                        headers={"Origin": "https://evil.example"})
+    assert r.status_code == 403
+
+
+def test_hosted_caps_uploads_below_vercels_limit(hosted):
+    r = hosted.post("/api/recordings/decode", files={"files": ("big.npz", b"0" * (5 * 1024 * 1024))})
+    assert r.status_code == 413 and "4 MB" in r.json()["error"]
+
+
+def test_asgi_entrypoint_exposes_app():
+    from eeg_morse.asgi import app
+    assert any(getattr(r, "path", "") == "/api/health" for r in app.routes)
