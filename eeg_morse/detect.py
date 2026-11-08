@@ -62,8 +62,8 @@ def otsu(x: np.ndarray, nbins: int = 256) -> tuple[float, float, float, float]:
     return float(thr), mu0, mu1, min(1.0, eta)
 
 
-def fit_thresholds(act: np.ndarray, cfg: DetectConfig) -> Thresholds:
-    thr, mu0, mu1, eta = otsu(act)
+def fit_thresholds(act: np.ndarray, cfg: DetectConfig, mask: np.ndarray | None = None) -> Thresholds:
+    thr, mu0, mu1, eta = otsu(act if mask is None else act[mask])
     if cfg.lo is not None and cfg.hi is not None:
         rest = cfg.rest_level if cfg.rest_level is not None else mu0
         return Thresholds(cfg.lo, cfg.hi, (cfg.lo + cfg.hi) / 2, rest, mu1, eta)
@@ -107,14 +107,25 @@ def clean(iv: list[tuple[int, int]], rate: float, min_on_s: float,
     return [(a, b) for a, b in merged if b - a >= min_on]
 
 
-def detect(t: np.ndarray, act: np.ndarray, rate: float,
-           cfg: DetectConfig) -> tuple[list[Segment], Thresholds]:
-    th = fit_thresholds(act, cfg)
-    iv = clean(runs(hysteresis(act, th.lo, th.hi)), rate, cfg.min_on_s, cfg.min_off_s)
-    # Key-downs touching the first/last edge_s are filter edge artifacts (or a
-    # movement cut off by the recording) and can't be timed: drop them.
-    edge = int(round(cfg.edge_s * rate))
-    iv = [(a, b) for a, b in iv if a >= edge and b <= act.size - edge]
-    dt = 1.0 / rate
-    segs = [Segment(float(t[0] + a * dt), float(t[0] + b * dt)) for a, b in iv]
+def detect(t: np.ndarray, act: np.ndarray, rate: float, cfg: DetectConfig,
+           seg_slices: list[tuple[int, int]] | None = None) -> tuple[list[Segment], Thresholds]:
+    """Key-down intervals. One threshold for the whole recording, fit on settled
+    data only; hysteresis and cleaning run inside each continuous segment."""
+    from .signal import settled_mask
+
+    seg_slices = seg_slices or [(0, act.size)]
+    mask = settled_mask(t, seg_slices, rate, cfg.settle_s, cfg.edge_s)
+    th = fit_thresholds(act, cfg, mask)
+    start_edge = int(round(max(cfg.edge_s, cfg.settle_s) * rate))
+    end_edge = int(round(cfg.edge_s * rate))
+    segs: list[Segment] = []
+    for a, b in seg_slices:
+        x = act[a:b]
+        iv = clean(runs(hysteresis(x, th.lo, th.hi)), rate, cfg.min_on_s, cfg.min_off_s)
+        # Key-downs touching a segment's settling start or last edge are filter
+        # transients (or a movement cut off by a pause) and can't be timed.
+        iv = [(i, j) for i, j in iv if i >= start_edge and j <= x.size - end_edge]
+        tt = t[a:b]
+        dt = 1.0 / rate
+        segs += [Segment(float(tt[0] + i * dt), float(tt[0] + j * dt)) for i, j in iv]
     return segs, th

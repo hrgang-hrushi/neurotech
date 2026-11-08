@@ -11,7 +11,8 @@ from .pipeline import Result
 
 
 def plot_result(res: Result, path: str, truth=None, start: float | None = None,
-                stop: float | None = None, title: str | None = None) -> str:
+                stop: float | None = None, title: str | None = None, labels=None) -> str:
+    """labels: Annotations (e.g. from eego) drawn as coloured bars under the trace."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -50,6 +51,15 @@ def plot_result(res: Result, path: str, truth=None, start: float | None = None,
         ax.axvspan(e.t_on, e.t_off, color=accent, alpha=0.12, lw=0)
         ax.text((e.t_on + e.t_off) / 2, ymax + 0.9 * pad, "•" if e.symbol == "." else "—",
                 ha="center", va="center", fontsize=12, color=ink)
+    if labels:
+        palette = ["#1a7f37", "#8250df", "#bf8700", "#cf222e", "#0550ae"]
+        kinds = sorted({l.label for l in labels})
+        for l in labels:
+            col = palette[kinds.index(l.label) % len(palette)]
+            ax.plot([l.onset, l.onset + max(l.duration, 0.15)], [ymin - 0.6 * pad] * 2,
+                    color=col, lw=4, solid_capstyle="butt")
+        for k in kinds:
+            ax.plot([], [], color=palette[kinds.index(k) % len(palette)], lw=4, label=f"label: {k}")
     if truth is not None:
         for a, b in zip(truth.t_on, truth.t_off):
             ax.plot([a, b], [ymin - 0.6 * pad] * 2, color="#1a7f37", lw=3, solid_capstyle="butt")
@@ -73,8 +83,14 @@ def plot_result(res: Result, path: str, truth=None, start: float | None = None,
         ax.text(mid, 0.25, l.code, ha="center", va="center", fontsize=9,
                 color=muted, family="monospace")
         ax.plot([l.t_start, l.t_end], [0.08, 0.08], color=muted, lw=1)
-    ax.set_xlabel("time (s)")
+    ax.set_xlabel("time in recording (s)" if len(res.recording.segments) > 1 else "time (s)")
     ax.set_xlim(t0, t1)
+    for a, _ in res.recording.segments[1:]:
+        for axx in axes:
+            axx.axvline(a / res.recording.sfreq, color=muted, lw=0.8, ls=":")
+    if len(res.recording.segments) > 1:
+        axes[0].text(1.0, 1.02, "dotted lines = recording paused/resumed", transform=axes[0].transAxes,
+                     ha="right", va="bottom", fontsize=7, color=muted)
     for a in axes:
         for s in ("top", "right"):
             a.spines[s].set_visible(False)

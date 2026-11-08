@@ -1,0 +1,45 @@
+{
+  "feature": {
+    "channels": [
+      "F3",
+      "c3",
+      "F7",
+      "F4",
+      "F9",
+      "t7"
+    ],
+    "band": [
+      30.0,
+      95.0
+    ],
+    "direction": "increase",
+    "reference": "car",
+    "line_freq": 60.0,
+    "smooth_s": 0.15,
+    "env_rate": 50.0,
+    "measure": "power",
+    "baseline_s": 10.0,
+    "baseline_pct": 25.0,
+    "normalize": "segment"
+  },
+  "detect": {
+    "hysteresis": 0.25,
+    "min_on_s": 0.08,
+    "min_off_s": 0.08,
+    "edge_s": 0.5,
+    "settle_s": 2.5,
+    "lo": 0.786471187311598,
+    "hi": 1.2294370826788223,
+    "rest_level": 0.11866614476140776
+  },
+  "timing": {
+    "unit_s": null,
+    "default_unit_s": 0.3,
+    "bias_s": 0.0,
+    "min_dot_ratio": 0.4,
+    "dash_ratio": 2.0,
+    "letter_gap_ratio": 2.0,
+    "word_gap_ratio": 5.0
+  },
+  "preset": "trained:clench"
+}

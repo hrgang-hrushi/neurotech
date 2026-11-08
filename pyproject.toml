@@ -8,6 +8,7 @@ license = { text = "MIT" }
 dependencies = [
     "antio>=0.5",
     "braindecode>=1.2",
+    "fastapi>=0.115",
     "joblib>=1.4",
     "matplotlib>=3.6",
     "mne>=1.9",
@@ -15,9 +16,12 @@ dependencies = [
     "pandas>=1.5",
     "pylsl>=1.17",
     "pyriemann>=0.8",
+    "python-multipart>=0.0.9",
     "scikit-learn>=1.5",
     "scipy>=1.13",
     "torch>=2.4",
+    "uvicorn>=0.30",
+    "wordfreq>=3.1.1",
 ]
 
 [project.optional-dependencies]
@@ -29,7 +33,10 @@ eegmove = "eegmove.cli:main"
 eeg-morse = "eeg_morse.__main__:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8",
+]
 
 [build-system]
 requires = ["hatchling"]

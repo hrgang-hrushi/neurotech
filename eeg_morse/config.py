@@ -32,12 +32,17 @@ class FeatureConfig:
     # deflection into an undershoot whose size depends on sending speed).
     baseline_s: float = 10.0
     baseline_pct: float = 25.0
+    # power only: "segment" subtracts each continuous segment's resting level
+    # (baseline_pct percentile), because eego resumes change electrode contact.
+    normalize: str = "segment"
 
     def __post_init__(self) -> None:
         if self.direction not in ("decrease", "increase"):
             raise ValueError("direction must be 'decrease' or 'increase'")
         if self.measure not in ("power", "amplitude"):
             raise ValueError("measure must be 'power' or 'amplitude'")
+        if self.normalize not in ("segment", "none"):
+            raise ValueError("normalize must be 'segment' or 'none'")
         if self.reference not in ("car", "none"):
             raise ValueError("reference must be 'car' or 'none'")
         self.band = (float(self.band[0]), float(self.band[1]))
@@ -52,6 +57,9 @@ class DetectConfig:
     min_on_s: float = 0.12  # drop "key down" blips shorter than this
     min_off_s: float = 0.12  # bridge "key up" dropouts shorter than this
     edge_s: float = 0.5  # ignore key-downs touching the recording's first/last edge_s
+    # eego needs a few seconds to settle after every resume (DC/filter transient):
+    # ignore this much at the start of each continuous segment.
+    settle_s: float = 2.5
     # Optional fixed thresholds in activation units (set by `calibrate`).
     lo: float | None = None
     hi: float | None = None
@@ -124,7 +132,7 @@ PRESETS: dict[str, dict] = {
     # fast; the most reliable "switch" on a scalp cap.
     "clench": dict(
         feature=dict(
-            channels=["T7", "T8", "FT7", "FT8", "TP7", "TP8", "M1", "M2"],
+            channels=["T7", "T8", "F9", "F10", "FT7", "FT8", "TP7", "TP8", "M1", "M2"],
             band=(30.0, 95.0),
             direction="increase",
             reference="car",

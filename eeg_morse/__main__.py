@@ -4,7 +4,9 @@
   simulate   make a synthetic eego-like recording of a message (SIMULATED data)
   decode     recording -> dots/dashes -> English (+ plot, + JSON report)
   calibrate  tune settings on a recording of a KNOWN phrase, save a config
+  train      tune a detector on events you labeled in eego, save a config
   live       decode eego's LSL stream in real time (or replay a file)
+  serve      HTTP API for drag-and-drop decoding of recordings (dot-reader)
 """
 from __future__ import annotations
 
@@ -65,7 +67,36 @@ def _load(args) -> eio.Recording:
 
 
 def cmd_info(args) -> int:
-    print(_load(args).summary())
+    from .pipeline import ensure_bad_channels
+
+    rec = _load(args)
+    ensure_bad_channels(rec)
+    print(rec.summary())
+    return 0
+
+
+def cmd_train(args) -> int:
+    from .pipeline import decode
+    from .train import select, train
+
+    rec = _load(args)
+    res = train(rec, _config(args), args.labels, short=args.short, long=args.long,
+                tol_s=args.tol, search_all_channels=not args.preset_channels_only)
+    print(res.summary())
+    res.config.save(args.out)
+    print(f"saved : {args.out}  (use with: decode --config {args.out}  /  live --config {args.out})")
+    if args.report:
+        Path(args.report).write_text(json.dumps(res.report(), indent=2, default=float))
+        print(f"report: {args.report}")
+    if args.plot:
+        from .plot import plot_result
+
+        out = decode(rec, res.config, act=res.activation)
+        s = res.score
+        plot_result(out, args.plot, labels=select(rec, args.labels),
+                    title=f"Trained on {', '.join(args.labels)}: {s.hits}/{s.n_labels} labels found, "
+                          f"{s.false_alarms} false alarms")
+        print(f"plot  : {args.plot}")
     return 0
 
 
@@ -186,6 +217,13 @@ def cmd_live(args) -> int:
     return 0
 
 
+def cmd_serve(args) -> int:
+    from .server import serve
+
+    serve(args.host, args.port)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m eeg_morse", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -227,6 +265,25 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--out", default="calibration.json", help="where to save the config")
         p.set_defaults(fn=fn)
 
+    p = sub.add_parser("train", help="tune a detector on events labeled in eego")
+    p.add_argument("file", help="eego .cnt (with its .evt/.seg next to it) or another format with annotations")
+    p.add_argument("--labels", nargs="+", required=True,
+                   help="label text to train on, matched as a case-insensitive substring "
+                        "(e.g. Clench, or Blink to take both Short and Long Blink)")
+    p.add_argument("--short", help="label text of the SHORT version (dot), e.g. 'Short Blink'")
+    p.add_argument("--long", help="label text of the LONG version (dash), e.g. 'Long Blink'")
+    p.add_argument("--tol", type=float, default=1.0, help="seconds of slack when matching labels")
+    p.add_argument("--preset-channels-only", action="store_true",
+                   help="only consider the preset's channels (default: rank every good channel)")
+    p.add_argument("--out", default="trained.json", help="where to save the trained config")
+    p.add_argument("--report", help="save a JSON report here")
+    p.add_argument("--plot", help="save a diagnostic PNG here")
+    p.add_argument("--sfreq", type=float, help=argparse.SUPPRESS)
+    p.add_argument("--start", type=float, help="crop: start time in seconds")
+    p.add_argument("--stop", type=float, help="crop: stop time in seconds")
+    _add_feature_args(p)
+    p.set_defaults(fn=cmd_train)
+
     p = sub.add_parser("live", help="decode eego's LSL stream in real time")
     _add_feature_args(p)
     p.add_argument("--stream-name", help="LSL stream name (default: first stream of type EEG)")
@@ -239,6 +296,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="publish decoded letters as an LSL marker stream (eego can record them)")
     p.add_argument("--save", help="save the final text + settings as JSON")
     p.set_defaults(fn=cmd_live)
+
+    p = sub.add_parser("serve", help="HTTP API for drag-and-drop decoding (dot-reader Recordings tab)")
+    p.add_argument("--host", default="127.0.0.1", help="interface to bind (default: localhost only)")
+    p.add_argument("--port", type=int, default=8770)
+    p.set_defaults(fn=cmd_serve)
 
     args = ap.parse_args(argv)
     with warnings.catch_warnings():
