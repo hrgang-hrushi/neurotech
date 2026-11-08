@@ -33,6 +33,9 @@ class StreamPreprocessor:
         chunk = np.asarray(chunk, dtype=np.float64)
         if chunk.size == 0:
             return np.empty((0, self.n_channels))
+        # One NaN would poison the filter state for good. Callers check for these on the raw
+        # data, because a zero here is indistinguishable once it has been filtered.
+        chunk = np.nan_to_num(chunk, nan=0.0, posinf=0.0, neginf=0.0)
         chunk = chunk - chunk.mean(axis=1, keepdims=True)
         if self._zi is None:
             base = signal.sosfilt_zi(self.sos)[:, :, None]

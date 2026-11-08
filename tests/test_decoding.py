@@ -3,7 +3,7 @@ import torch
 
 from eegmove.config import SignalConfig
 from eegmove.datasets import Windows
-from eegmove.live import Debouncer, RingBuffer
+from eegmove.live import MORSE_DEBOUNCE, Debouncer, RingBuffer
 from eegmove.models import ShallowNet, TrainConfig, _augment, fit_net, make_riemann, net_probs
 from eegmove.record import build_schedule
 from eegmove.train import evaluate_session
@@ -72,6 +72,105 @@ def test_debouncer_needs_a_stable_signal_and_fires_once():
     debounce.update(rest), debounce.update(rest), debounce.update(rest)
     events = [debounce.update(left)[1] for _ in range(8)]
     assert events.count("left") == 1
+
+
+LR = ["rest", "left", "right"]
+REST, LEFT, RIGHT = (np.eye(3)[i] * 0.9 + 0.05 for i in range(3))
+UNSURE = np.array([0.45, 0.3, 0.25])
+
+
+def morse_debouncer(**options):
+    settings = dict(alpha=1.0, threshold=0.6, dwell=3, refractory=12, rest_dwell=8)
+    return Debouncer(LR, **{**settings, **options})
+
+
+def play(debounce, *script):
+    events = []
+    for probs, count in script:
+        for _ in range(count):
+            _, event = debounce.update(probs)
+            if event:
+                events.append(event)
+    return events
+
+
+def test_symbol_during_cooldown_is_not_lost():
+    debounce = morse_debouncer(refractory=20)
+    # Rest re-arms at update 11 of the cooldown, then right is held past its end.
+    assert play(debounce, (LEFT, 3), (REST, 8), (RIGHT, 12)) == ["left", "right"]
+    assert debounce.state == "right"
+
+
+def test_repeat_requires_return_to_rest():
+    debounce = morse_debouncer()
+    assert play(debounce, (LEFT, 60)) == ["left"]
+    assert play(debounce, (REST, 3), (LEFT, 20)) == []  # 0.75 s of rest doesn't re-arm
+    assert play(debounce, (REST, 8), (LEFT, 12)) == ["left"]
+
+
+def test_low_confidence_fires_nothing():
+    debounce = morse_debouncer(threshold=0.96)
+    assert play(debounce, (LEFT, 30)) == []
+    assert debounce.state == "rest"
+
+
+def test_dip_inside_a_hold_does_not_double_fire():
+    debounce = morse_debouncer()
+    assert play(debounce, (LEFT, 5), (UNSURE, 4), (LEFT, 5), (REST, 3), (LEFT, 8)) == ["left"]
+
+
+def test_switching_symbols_needs_rest():
+    debounce = morse_debouncer(refractory=4)
+    assert play(debounce, (LEFT, 6), (RIGHT, 12)) == ["left"]
+    assert debounce.state == "left"
+    assert play(debounce, (REST, 8), (RIGHT, 4)) == ["right"]
+
+
+def test_low_confidence_pauses_the_return_to_rest():
+    debounce = morse_debouncer()
+    play(debounce, (LEFT, 4), (REST, 5), (UNSURE, 3))
+    assert debounce.state == "left"
+    play(debounce, (REST, 3))
+    assert debounce.state == "rest"
+
+
+def test_stuck_state_releases():
+    debounce = morse_debouncer(release_after=16)
+    play(debounce, (LEFT, 4), (UNSURE, 15))
+    assert debounce.state == "left"
+    play(debounce, (UNSURE, 1))
+    assert debounce.state == "rest"
+    assert play(debounce, (LEFT, 3)) == ["left"]
+
+
+def test_a_confirmed_hold_never_releases():
+    debounce = morse_debouncer(release_after=16)
+    play(debounce, (LEFT, 100))
+    assert debounce.state == "left"
+
+
+def test_rest_only_counts_when_confident():
+    debounce = morse_debouncer(release_after=2)
+    play(debounce, (LEFT, 4), (np.array([0.2, 0.45, 0.35]), 3))
+    assert debounce.state == "rest" and not debounce.rest_sure
+    play(debounce, (UNSURE, 1))  # rest leads here, but below the threshold
+    assert not debounce.rest_sure
+    play(debounce, (REST, 1))
+    assert debounce.rest_sure
+
+
+def test_a_confident_rebound_never_releases_into_a_symbol():
+    debounce = morse_debouncer(**MORSE_DEBOUNCE)
+    assert play(debounce, (LEFT, 6), (RIGHT, 60)) == ["left"]
+    assert debounce.state == "left"
+
+
+def test_rejected_window_clears_the_streak():
+    debounce = morse_debouncer()
+    play(debounce, (LEFT, 2))
+    debounce.hold()
+    assert play(debounce, (LEFT, 2)) == []
+    assert play(debounce, (LEFT, 1)) == ["left"]
 
 
 def test_ring_buffer_returns_newest_samples_in_order():

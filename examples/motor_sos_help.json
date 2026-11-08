@@ -1,0 +1,320 @@
+{
+  "text": "SMTS HELP",
+  "morse": "... -- - ... / .... . .-.. .--.",
+  "source": {
+    "file": "examples/sim_motor_sos_help.npz",
+    "sfreq": 500.0,
+    "duration_s": 115.412,
+    "channels_used": [
+      "C3",
+      "CP1",
+      "Cz",
+      "C4",
+      "FC1",
+      "FC2",
+      "CP2"
+    ]
+  },
+  "quality": {
+    "separability": 0.79,
+    "n_key_downs": 22,
+    "fraction_time_active": 0.414,
+    "warnings": []
+  },
+  "thresholds": {
+    "lo": -1.45944,
+    "hi": -1.3724,
+    "split": -1.41567,
+    "rest_level": -1.59076,
+    "active_level": -1.24257,
+    "separability": 0.79028
+  },
+  "timing": {
+    "unit_s": 1.2539,
+    "unit_source": "estimated",
+    "bias_s": 0.2211,
+    "dash_threshold_s": 2.7288,
+    "letter_gap_s": 2.2866,
+    "word_gap_s": 6.0482
+  },
+  "letters": [
+    {
+      "code": "...",
+      "char": "S",
+      "status": "ok",
+      "t_start": 6.62,
+      "t_end": 13.82
+    },
+    {
+      "code": "--",
+      "char": "M",
+      "status": "ok",
+      "t_start": 18.16,
+      "t_end": 27.240000000000002
+    },
+    {
+      "code": "-",
+      "char": "T",
+      "status": "ok",
+      "t_start": 29.86,
+      "t_end": 34.18
+    },
+    {
+      "code": "...",
+      "char": "S",
+      "status": "ok",
+      "t_start": 38.22,
+      "t_end": 45.58
+    },
+    {
+      "code": "....",
+      "char": "H",
+      "status": "ok",
+      "t_start": 55.86,
+      "t_end": 66.78
+    },
+    {
+      "code": ".",
+      "char": "E",
+      "status": "ok",
+      "t_start": 71.68,
+      "t_end": 73.74
+    },
+    {
+      "code": ".-..",
+      "char": "L",
+      "status": "ok",
+      "t_start": 77.68,
+      "t_end": 91.10000000000001
+    },
+    {
+      "code": ".--.",
+      "char": "P",
+      "status": "ok",
+      "t_start": 95.96000000000001,
+      "t_end": 111.78
+    }
+  ],
+  "elements": [
+    {
+      "t_on": 6.62,
+      "t_off": 8.34,
+      "symbol": ".",
+      "gap_before": null,
+      "boundary": "start",
+      "duration": 1.72
+    },
+    {
+      "t_on": 9.76,
+      "t_off": 10.88,
+      "symbol": ".",
+      "gap_before": 1.42,
+      "boundary": "intra",
+      "duration": 1.12
+    },
+    {
+      "t_on": 12.540000000000001,
+      "t_off": 13.82,
+      "symbol": ".",
+      "gap_before": 1.6600000000000001,
+      "boundary": "intra",
+      "duration": 1.28
+    },
+    {
+      "t_on": 18.16,
+      "t_off": 21.78,
+      "symbol": "-",
+      "gap_before": 4.34,
+      "boundary": "letter",
+      "duration": 3.62
+    },
+    {
+      "t_on": 23.240000000000002,
+      "t_off": 27.240000000000002,
+      "symbol": "-",
+      "gap_before": 1.4600000000000009,
+      "boundary": "intra",
+      "duration": 4.0
+    },
+    {
+      "t_on": 29.86,
+      "t_off": 34.18,
+      "symbol": "-",
+      "gap_before": 2.6199999999999974,
+      "boundary": "letter",
+      "duration": 4.32
+    },
+    {
+      "t_on": 38.22,
+      "t_off": 39.76,
+      "symbol": ".",
+      "gap_before": 4.039999999999999,
+      "boundary": "letter",
+      "duration": 1.54
+    },
+    {
+      "t_on": 41.42,
+      "t_off": 42.68,
+      "symbol": ".",
+      "gap_before": 1.6600000000000037,
+      "boundary": "intra",
+      "duration": 1.26
+    },
+    {
+      "t_on": 44.24,
+      "t_off": 45.58,
+      "symbol": ".",
+      "gap_before": 1.5600000000000023,
+      "boundary": "intra",
+      "duration": 1.34
+    },
+    {
+      "t_on": 55.86,
+      "t_off": 57.46,
+      "symbol": ".",
+      "gap_before": 10.280000000000001,
+      "boundary": "word",
+      "duration": 1.6
+    },
+    {
+      "t_on": 59.0,
+      "t_off": 60.480000000000004,
+      "symbol": ".",
+      "gap_before": 1.5399999999999991,
+      "boundary": "intra",
+      "duration": 1.48
+    },
+    {
+      "t_on": 62.22,
+      "t_off": 63.9,
+      "symbol": ".",
+      "gap_before": 1.7399999999999949,
+      "boundary": "intra",
+      "duration": 1.68
+    },
+    {
+      "t_on": 65.16,
+      "t_off": 66.78,
+      "symbol": ".",
+      "gap_before": 1.259999999999998,
+      "boundary": "intra",
+      "duration": 1.62
+    },
+    {
+      "t_on": 71.68,
+      "t_off": 73.74,
+      "symbol": ".",
+      "gap_before": 4.900000000000006,
+      "boundary": "letter",
+      "duration": 2.06
+    },
+    {
+      "t_on": 77.68,
+      "t_off": 79.24,
+      "symbol": ".",
+      "gap_before": 3.940000000000012,
+      "boundary": "letter",
+      "duration": 1.56
+    },
+    {
+      "t_on": 81.10000000000001,
+      "t_off": 84.94,
+      "symbol": "-",
+      "gap_before": 1.8600000000000136,
+      "boundary": "intra",
+      "duration": 3.84
+    },
+    {
+      "t_on": 86.62,
+      "t_off": 88.02,
+      "symbol": ".",
+      "gap_before": 1.6800000000000068,
+      "boundary": "intra",
+      "duration": 1.4
+    },
+    {
+      "t_on": 89.4,
+      "t_off": 91.10000000000001,
+      "symbol": ".",
+      "gap_before": 1.3800000000000097,
+      "boundary": "intra",
+      "duration": 1.7
+    },
+    {
+      "t_on": 95.96000000000001,
+      "t_off": 97.22,
+      "symbol": ".",
+      "gap_before": 4.859999999999999,
+      "boundary": "letter",
+      "duration": 1.26
+    },
+    {
+      "t_on": 98.96000000000001,
+      "t_off": 102.86,
+      "symbol": "-",
+      "gap_before": 1.740000000000009,
+      "boundary": "intra",
+      "duration": 3.9
+    },
+    {
+      "t_on": 104.32000000000001,
+      "t_off": 108.58,
+      "symbol": "-",
+      "gap_before": 1.460000000000008,
+      "boundary": "intra",
+      "duration": 4.26
+    },
+    {
+      "t_on": 110.52,
+      "t_off": 111.78,
+      "symbol": ".",
+      "gap_before": 1.9399999999999977,
+      "boundary": "intra",
+      "duration": 1.26
+    }
+  ],
+  "config": {
+    "feature": {
+      "channels": [
+        "C3",
+        "CP1",
+        "Cz",
+        "C4",
+        "FC1",
+        "FC2",
+        "CP2"
+      ],
+      "band": [
+        8.0,
+        30.0
+      ],
+      "direction": "decrease",
+      "reference": "car",
+      "line_freq": 60.0,
+      "smooth_s": 0.5,
+      "env_rate": 50.0,
+      "measure": "power",
+      "baseline_s": 10.0,
+      "baseline_pct": 25.0
+    },
+    "detect": {
+      "hysteresis": 0.25,
+      "min_on_s": 0.25,
+      "min_off_s": 0.25,
+      "edge_s": 0.5,
+      "lo": -1.4415123088587134,
+      "hi": -1.344760277233697,
+      "rest_level": -1.6156139828705733
+    },
+    "timing": {
+      "unit_s": null,
+      "default_unit_s": 1.5437,
+      "bias_s": -0.3482,
+      "min_dot_ratio": 0.4,
+      "dash_ratio": 2.0,
+      "letter_gap_ratio": 2.0,
+      "word_gap_ratio": 5.0
+    },
+    "preset": "motor"
+  }
+}

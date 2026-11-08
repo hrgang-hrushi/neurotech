@@ -1,0 +1,440 @@
+#!/usr/bin/env python3
+"""
+morse_bci.py - Bidirectional bridge: ANT Neuro (eego) EEG  ->  Morse decoder  ->  text.
+
+DATA IN    : EEG samples via Lab Streaming Layer (LSL) from the eego amplifier.
+DATA OUT   : LSL marker stream "MorseEvents" (dot / dash / letter:X / word / erase / text:...),
+             so your partner's code, a UI, or the eego recorder can see what was decoded.
+COMMANDS IN: LSL marker stream "MorseCommands" ("reset", "clear", "recalibrate").
+
+Your partner's classifier plugs in by subclassing `Decoder` (see PartnerDecoder).
+Two baseline decoders are built in so the whole pipeline works out of the box:
+  --mode flex     subtle muscle flexing  (EMG burst, 30-120 Hz power goes UP)
+  --mode imagery  motor imagery          (mu/beta 8-30 Hz power goes DOWN = ERD)
+
+Symbol rule for the baselines (single-switch Morse):
+  short activation = dot      long activation (>= --dash-s) = dash
+Partner decoders may instead return 'dot' / 'dash' directly (two-class MI).
+
+Gaps : pause >= --letter-gap ends a letter, pause >= --word-gap adds a space.
+Error: 8 dots ("........") deletes the previous character.
+
+TIMING NOTE: hold time is measured in *decoder* time, i.e. it includes the analysis-window
+lag. Defaults (flex 0.25 s window, imagery 0.5 s window) were checked so that a ~0.4 s
+activation is a dot and a ~1.3 s one is a dash. The status line prints the last measured
+hold time - use it to tune --dash-s for each user.
+
+Install:  pip install numpy scipy pylsl
+Test w/o hardware:  python morse_bci.py --simulate --mode flex
+Real headset:       start the eego LSL output first, then
+                    python morse_bci.py --mode imagery --channels C3 Cz C4
+"""
+import argparse
+import importlib
+import re
+import sys
+import threading
+import time
+from collections import deque
+
+import numpy as np
+from pylsl import (StreamInfo, StreamInlet, StreamOutlet, local_clock,
+                   resolve_byprop)
+from scipy.signal import butter, sosfiltfilt
+
+MORSE = {
+    ".-": "A", "-...": "B", "-.-.": "C", "-..": "D", ".": "E", "..-.": "F",
+    "--.": "G", "....": "H", "..": "I", ".---": "J", "-.-": "K", ".-..": "L",
+    "--": "M", "-.": "N", "---": "O", ".--.": "P", "--.-": "Q", ".-.": "R",
+    "...": "S", "-": "T", "..-": "U", "...-": "V", ".--": "W", "-..-": "X",
+    "-.--": "Y", "--..": "Z", "-----": "0", ".----": "1", "..---": "2",
+    "...--": "3", "....-": "4", ".....": "5", "-....": "6", "--...": "7",
+    "---..": "8", "----.": "9",
+}
+ERASE = "........"
+
+REST, ACTIVE, DOT, DASH = "rest", "active", "dot", "dash"
+
+# Label prefixes that are not scalp EEG (different units/scales would wreck band power)
+NON_EEG_PREFIXES = ("TRIG", "TRG", "STATUS", "SAMPLE", "COUNTER", "BIP", "ACC",
+                    "GYRO", "AUX", "REF", "GND", "EVENT")
+
+
+# --------------------------------------------------------------------------- #
+# Decoders
+# --------------------------------------------------------------------------- #
+class Decoder:
+    """Interface for the EEG classifier. window: (n_samples, n_channels), uV."""
+
+    def __init__(self, fs):
+        self.fs = fs
+
+    def calibrate(self, rest_windows):
+        """Called once with a list of windows recorded while the user rests."""
+
+    def predict(self, window):
+        """Return REST, ACTIVE, DOT or DASH."""
+        raise NotImplementedError
+
+
+class PartnerDecoder(Decoder):
+    """EXAMPLE STUB - copy this into your partner's module.
+    Run with:  --decoder my_module:MyDecoder"""
+
+    def predict(self, window):
+        # window is a numpy array (samples x channels). Run your model here.
+        # return DOT / DASH for two-class imagery, ACTIVE for single-switch,
+        # or REST when the user is doing nothing.
+        return REST
+
+
+class ThresholdDecoder(Decoder):
+    """Self-calibrating band-power threshold (baseline for flex / imagery)."""
+
+    def __init__(self, fs, mode="flex", k=3.0, mains=60.0):
+        super().__init__(fs)
+        self.mode, self.k = mode, k
+        lo, hi = (30.0, min(120.0, 0.45 * fs)) if mode == "flex" else (8.0, 30.0)
+        self.sos = butter(4, [lo, hi], btype="bandpass", fs=fs, output="sos")
+        # Mains hum (and 2nd harmonic) removal. A narrow IIR notch needs ~0.25 s to settle,
+        # as long as the whole analysis window, so it can't clean a single window. Instead we
+        # least-squares fit and subtract sin/cos at the mains frequencies inside each window.
+        self.hum_freqs = [f for f in (mains, 2 * mains)
+                          if mains and lo < f < min(hi + 10, 0.48 * fs)]
+        self._proj = {}
+        self.mu, self.sd = 0.0, 1.0
+
+    def _remove_hum(self, x):
+        if not self.hum_freqs:
+            return x
+        n = len(x)
+        if n not in self._proj:
+            t = np.arange(n) / self.fs
+            cols = [fn(2 * np.pi * f * t) for f in self.hum_freqs for fn in (np.sin, np.cos)]
+            m = np.stack(cols, axis=1)
+            self._proj[n] = m @ np.linalg.pinv(m)     # projection onto the hum subspace
+        return x - self._proj[n] @ x
+
+    def feature(self, win):
+        x = win - win.mean(axis=0)
+        x = self._remove_hum(x)
+        x = sosfiltfilt(self.sos, x, axis=0)
+        return float(np.log(np.mean(x ** 2) + 1e-12))  # log band power, all channels
+
+    def calibrate(self, rest_windows):
+        f = np.array([self.feature(w) for w in rest_windows])
+        self.mu, self.sd = f.mean(), max(f.std(), 0.15)
+
+    def predict(self, window):
+        f = self.feature(window)
+        if self.mode == "flex":
+            return ACTIVE if f > self.mu + self.k * self.sd else REST
+        return ACTIVE if f < self.mu - self.k * self.sd else REST  # ERD
+
+
+# --------------------------------------------------------------------------- #
+# Labels -> Morse -> text
+# --------------------------------------------------------------------------- #
+class MorseAssembler:
+    def __init__(self, dash_s, letter_gap, word_gap, confirm=4):
+        self.dash_s, self.letter_gap, self.word_gap = dash_s, letter_gap, word_gap
+        self.hist = deque(maxlen=confirm)
+        self.stable = REST
+        self.onset = None
+        self.symbols = ""
+        self.text = ""
+        self.last_t = None
+        self.last_dur = None
+
+    def reset(self):
+        self.symbols, self.text, self.last_t, self.onset = "", "", None, None
+
+    def _symbol(self, s, t, events):
+        self.symbols += s
+        self.last_t = t
+        events.append("dot" if s == "." else "dash")
+
+    def _end_letter(self, events):
+        if not self.symbols:
+            return
+        if self.symbols == ERASE:
+            self.text = self.text[:-1]
+            events.append("erase")
+        else:
+            ch = MORSE.get(self.symbols, "?")
+            self.text += ch
+            events.append(f"letter:{ch}")
+        self.symbols = ""
+
+    def update(self, label, t):
+        """Feed one decoder label (t = data time in s). Returns a list of event strings.
+        Debounce delays onset and release equally, so it cancels out of the hold time."""
+        events = []
+        self.hist.append(label)
+        if len(self.hist) == self.hist.maxlen and len(set(self.hist)) == 1:
+            new = self.hist[0]
+            if new != self.stable:
+                if new in (DOT, DASH):
+                    self._symbol("." if new == DOT else "-", t, events)
+                elif new == ACTIVE:
+                    self.onset = t
+                elif new == REST and self.stable == ACTIVE and self.onset is not None:
+                    self.last_dur = t - self.onset
+                    self._symbol("-" if self.last_dur >= self.dash_s else ".", t, events)
+                    self.onset = None
+                self.stable = new
+
+        busy = self.stable != REST
+        if not busy and self.last_t is not None:
+            gap = t - self.last_t
+            if self.symbols and gap >= self.letter_gap:
+                self._end_letter(events)
+            if (not self.symbols and self.text and not self.text.endswith(" ")
+                    and gap >= self.word_gap):
+                self.text += " "
+                events.append("word")
+        return events
+
+
+# --------------------------------------------------------------------------- #
+# LSL helpers
+# --------------------------------------------------------------------------- #
+def get_channels(info):
+    """Return [(label, type), ...] from the LSL stream header (type may be '')."""
+    out = []
+    try:
+        ch = info.desc().child("channels").child("channel")
+        while not ch.empty():
+            out.append((ch.child_value("label"), ch.child_value("type")))
+            ch = ch.next_sibling()
+    except Exception:
+        pass
+    return out
+
+
+def _tokens(label):
+    return [t.upper() for t in re.split(r"[^A-Za-z0-9]+", label) if t]
+
+
+def resolve_channels(requested, labels):
+    """Match requested names to stream labels (case/whitespace/prefix tolerant,
+    e.g. 'cz' matches 'Cz', ' Cz ' or 'EEG-Cz' but never 'FCz'). Returns (picks, missing)."""
+    picks, missing = [], []
+    for c in requested:
+        want = c.strip().upper()
+        hits = [i for i, l in enumerate(labels) if l.strip().upper() == want]
+        if not hits:
+            hits = [i for i, l in enumerate(labels) if want in _tokens(l)]
+        if len(hits) == 1:
+            picks.append(hits[0])
+        else:
+            missing.append(c if not hits else f"{c} (ambiguous)")
+    return picks, missing
+
+
+def default_eeg_picks(chans):
+    """Without --channels: keep only channels that look like scalp EEG."""
+    picks = []
+    for i, (label, typ) in enumerate(chans):
+        if typ and typ.strip().upper() not in ("EEG", ""):
+            continue
+        if label.strip().upper().startswith(NON_EEG_PREFIXES):
+            continue
+        picks.append(i)
+    return picks
+
+
+def make_outlet():
+    info = StreamInfo("MorseEvents", "Markers", 1, 0, "string", "morse_bci_out")
+    return StreamOutlet(info)
+
+
+def poll_commands(state):
+    """Non-blocking read of the MorseCommands inlet; reconnects if the sender restarts."""
+    now = time.time()
+    if state["inlet"] is None and now - state["tried"] > 2:
+        state["tried"] = now
+        try:
+            found = resolve_byprop("name", "MorseCommands", timeout=0.05)
+            if found:
+                state["inlet"] = StreamInlet(found[0])
+        except Exception:
+            state["inlet"] = None
+    cmds = []
+    if state["inlet"] is not None:
+        try:
+            samples, _ = state["inlet"].pull_chunk(timeout=0.0)
+            cmds = [s[0].strip().lower() for s in samples]
+        except Exception:                      # sender vanished (LostError etc.)
+            state["inlet"] = None
+    return cmds
+
+
+# --------------------------------------------------------------------------- #
+# Simulator (so you can test without the headset)
+# --------------------------------------------------------------------------- #
+def make_plan(message, start_delay, dot_s=0.4, dash_s=1.3):
+    inv = {v: k for k, v in MORSE.items()}
+    plan, t = [], start_delay
+    for letter in message:
+        for s in inv[letter]:
+            d = dot_s if s == "." else dash_s
+            plan.append((t, t + d))
+            t += d + 0.6
+        t += 3.0 - 0.6
+    return plan
+
+
+def synth(times, mode, plan, rng, n_ch=8, hum=0.0):
+    """EEG-like block for the given times (s): 10 Hz mu + noise (+ mains hum)."""
+    active = np.array([any(a <= tt <= b for a, b in plan) for tt in times])[:, None]
+    mu = 20 * np.where(active & (mode == "imagery"), 0.25, 1.0)
+    x = mu * np.sin(2 * np.pi * 10 * times)[:, None] + 5 * rng.standard_normal((len(times), n_ch))
+    if mode == "flex":
+        x += active * 40 * rng.standard_normal((len(times), n_ch))
+    if hum:
+        x += hum * np.sin(2 * np.pi * 60 * times)[:, None]
+    return x
+
+
+def simulate(mode, start_delay, hum=0.0, fs=500, n_ch=8, message="SOS"):
+    info = StreamInfo("SimEEG", "EEG", n_ch, fs, "float32", "sim_eeg")
+    chs = info.desc().append_child("channels")
+    for name in ["Fz", "C3", "Cz", "C4", "Pz", "O1", "Oz", "O2"][:n_ch]:
+        c = chs.append_child("channel")
+        c.append_child_value("label", name)
+        c.append_child_value("type", "EEG")
+    out = StreamOutlet(info)
+    plan = make_plan(message, start_delay)
+    rng = np.random.default_rng(0)
+    n, t0, k = 0, local_clock(), 10
+    while True:
+        times = (n + np.arange(k)) / fs
+        out.push_chunk(synth(times, mode, plan, rng, n_ch, hum).astype("float32").tolist())
+        n += k
+        time.sleep(k / fs)
+
+
+# --------------------------------------------------------------------------- #
+# Main loop
+# --------------------------------------------------------------------------- #
+def load_decoder(spec, fs, mode, mains):
+    if spec:
+        mod, cls = spec.split(":")
+        return getattr(importlib.import_module(mod), cls)(fs)
+    return ThresholdDecoder(fs, mode, mains=mains)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--mode", choices=["flex", "imagery"], default="flex")
+    ap.add_argument("--decoder", help="module:Class (partner decoder)")
+    ap.add_argument("--stream", help="LSL stream name (default: first type=EEG)")
+    ap.add_argument("--channels", nargs="*", help="channel labels to use, e.g. C3 Cz C4")
+    ap.add_argument("--window", type=float, default=None,
+                    help="window seconds (default 0.25 flex / 0.5 imagery)")
+    ap.add_argument("--hop", type=float, default=0.05, help="decode interval seconds")
+    ap.add_argument("--calib", type=float, default=8.0, help="rest calibration seconds")
+    ap.add_argument("--dash-s", type=float, default=0.8)
+    ap.add_argument("--letter-gap", type=float, default=2.0)
+    ap.add_argument("--word-gap", type=float, default=5.0)
+    ap.add_argument("--mains", type=float, default=60.0,
+                    help="mains frequency to notch out (60 US, 50 EU, 0 = off)")
+    ap.add_argument("--simulate", action="store_true")
+    ap.add_argument("--sim-hum", type=float, default=0.0, help="simulated mains hum (uV)")
+    a = ap.parse_args()
+    if a.window is None:
+        a.window = 0.25 if a.mode == "flex" else 0.5
+
+    if a.simulate:
+        threading.Thread(target=simulate, args=(a.mode, a.calib + 3, a.sim_hum),
+                         daemon=True).start()
+
+    print("Looking for EEG stream...")
+    prop, val = ("name", a.stream) if a.stream else ("type", "EEG")
+    streams = resolve_byprop(prop, val, timeout=15)
+    if not streams:
+        sys.exit("No EEG LSL stream found. Is the eego LSL output running?")
+    inlet = StreamInlet(streams[0], max_buflen=5)
+    info = inlet.info()
+    fs = int(info.nominal_srate())
+    chans = get_channels(info) or [(str(i), "") for i in range(info.channel_count())]
+    labels = [c[0] for c in chans]
+
+    if a.channels:
+        picks, missing = resolve_channels(a.channels, labels)
+        if missing:
+            sys.exit(f"Channel(s) not found / ambiguous: {missing}\n"
+                     f"Stream has: {labels}")
+    else:
+        picks = default_eeg_picks(chans)
+        if not picks:
+            sys.exit(f"No EEG-looking channels found in {labels}; pass --channels.")
+        print("No --channels given: auto-selected EEG-like channels. "
+              "Pass --channels C3 Cz C4 for best results.")
+    print(f"Connected: {info.name()}  {fs} Hz  using channels {[labels[i] for i in picks]}")
+
+    decoder = load_decoder(a.decoder, fs, a.mode, a.mains)
+    asm = MorseAssembler(a.dash_s, a.letter_gap, a.word_gap)
+    outlet = make_outlet()
+    cmd_state = {"inlet": None, "tried": 0.0}
+
+    win_n, hop_n = int(a.window * fs), max(1, int(a.hop * fs))
+    keep = win_n + 2 * fs
+    buf, tbuf = np.zeros((0, len(picks))), np.zeros(0)
+    base = total = 0                    # absolute index of buf[0] / samples received
+    next_end = win_n                    # absolute end index of the next window to decode
+    calib_wins, calibrating, cal_t0 = [], True, None
+    print(f"CALIBRATING for {a.calib:.0f}s - stay relaxed, do NOT flex/imagine...")
+
+    try:
+        while True:
+            chunk, ts = inlet.pull_chunk(timeout=0.05)
+            if chunk:
+                x = np.asarray(chunk, dtype=float)[:, picks]
+                buf = np.vstack([buf, x])
+                tbuf = np.concatenate([tbuf, np.asarray(ts, dtype=float)])
+                total += len(x)
+                if len(buf) > keep:
+                    drop = len(buf) - keep
+                    buf, tbuf, base = buf[drop:], tbuf[drop:], base + drop
+
+            for cmd in poll_commands(cmd_state):
+                if cmd in ("reset", "clear"):
+                    asm.reset()
+                elif cmd == "recalibrate":
+                    calibrating, calib_wins, cal_t0 = True, [], None
+                    print("\nRecalibrating...")
+
+            if next_end - win_n < base:           # fell behind: skip ahead
+                next_end = base + win_n
+            while next_end <= total:              # decode EVERY hop, however data arrives
+                i1 = next_end - base
+                window, t = buf[i1 - win_n:i1], float(tbuf[i1 - 1])
+                next_end += hop_n
+
+                if calibrating:
+                    cal_t0 = t if cal_t0 is None else cal_t0
+                    calib_wins.append(window.copy())
+                    if t - cal_t0 >= a.calib:
+                        decoder.calibrate(calib_wins)
+                        calibrating = False
+                        asm.reset()
+                        print("Calibrated. Go! (short = dot, long = dash, 8 dots = erase)\n")
+                    continue
+
+                label = decoder.predict(window)
+                for ev in asm.update(label, t):
+                    outlet.push_sample([ev])
+                    if ev.startswith("letter") or ev in ("word", "erase"):
+                        outlet.push_sample([f"text:{asm.text}"])
+                hold = f"{asm.last_dur:.2f}s" if asm.last_dur is not None else "--"
+                sys.stdout.write(f"\r[{label:6s}] morse: {asm.symbols:<10s} "
+                                 f"last hold: {hold:<6s} | text: {asm.text}   ")
+                sys.stdout.flush()
+    except KeyboardInterrupt:
+        print(f"\n\nFinal text: {asm.text}")
+
+
+if __name__ == "__main__":
+    main()

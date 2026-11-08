@@ -2,74 +2,106 @@
 
 Thirty minutes goes fast, and the net takes time to prepare. Decide who does what before walking in.
 
-## Before 1:00 PM
+## Before the first recording
 
 The ANT network may have no internet, so anything missing now can't be fixed at the station.
 
 - [ ] `uv run eegmove doctor` passes on **every laptop going to the station**
 - [ ] One person is the participant: someone comfortable sitting still, ideally the same person all weekend
-- [ ] The target movements are decided (see below) and everyone has tried the cue screen
+- [ ] Everyone has tried the cue screen and `uv run eegmove type --simulate`
+- [ ] One person is the hand watcher, who stays beside the participant during imagined cues
 - [ ] Bring a USB drive for the export, and a USB-C adapter if the laptop needs one
 - [ ] Ask ANT the open questions in [CHALLENGE.md](CHALLENGE.md#still-unknown-ask-ant)
 
-## Choosing the target movement
+## The target movements
 
-The pretrained model only helps if we record what it was trained on. PhysioNet covers **left hand,
-right hand, both hands, both feet and rest**. Those are the defaults because hand movement produces
-well-known changes over the motor cortex (C3 and C4).
+We record **rest, left hand and right hand**, because Morse needs two symbols and nothing more. Hand
+movement produces well-known changes over the motor cortex (C3 and C4), and PhysioNet has both real
+and imagined versions of it to pretrain on.
 
-Other movements are fine, such as reaching or walking, but then the pretrained model has less to
-offer and we rely on the per-person calibration alone. Pick the movement around the app, and keep it
-to 2–4 classes: each extra class gets fewer trials and makes the demo less reliable.
+The main dataset is **imagined** movement: the hands stay still. A shorter block of **real** movement
+is the fallback. **Ask ANT whether imagined movement counts as the track's core input.**
 
-## Rotation 1 (Sat 1:00 PM): collect data
+## The recording sitting (first free rotation)
 
-**Goal: leave with a labelled recording, and the real channel list.**
+**Goal: leave with two labelled recordings and the real channel list.** The 1:00 PM rotation has
+passed, so use the next free one. The two recordings take about 14 minutes together.
 
 1. ANT fits the net. Watch the impedance and ask for help on any motor-area channels above 50 kΩ.
-2. Join the ANT network and test the stream:
+2. Join the ANT network and start the imagined recording:
    ```bash
-   uv run eegmove record --per-class 25 --blocks 3 --out data/recordings/session1
+   uv run eegmove record --mode imagined --per-class 25
    ```
    This finds the stream, prints the labels, then waits for SPACE. **Photograph the labels.**
 3. Have ANT start the eego recording too, as a backup.
-4. Sit the participant facing the cue screen and press SPACE. A 60-second rest is followed by the cues.
-   With 4 classes this takes about 12 minutes. For a shorter run use `--per-class 15`.
-5. During cues: move only what the screen says. Keep the jaw, neck and shoulders loose, and avoid
-   looking around or blinking on purpose. Breaks are for fidgeting.
-6. Collect the eego export on the USB drive before leaving. Choose EEProbe `.cnt`.
+4. Sit the participant facing the cue screen and press SPACE. A 60-second rest is followed by the cues,
+   about 10 minutes in all.
+5. During imagined cues the hands stay completely still. **The hand watcher stops the run if a hand
+   moves.** Keep the jaw, neck and shoulders loose, and avoid looking around or blinking on purpose.
+   Breaks are for fidgeting.
+6. Record the fallback, where the hands really move, about 4 minutes:
+   ```bash
+   uv run eegmove record --mode real --per-class 12 --baseline 30 --blocks 1
+   ```
+7. Collect the eego export on the USB drive before leaving. Choose EEProbe `.cnt`.
+
+A crash, or a closed window, keeps what was recorded. An existing recording is never overwritten, so
+move it first or pass `--out`. If the app died mid-run, look for `imagined.snapshot.npz`, which loads
+like any recording. Recording refuses to start until that file has been moved, because it's real data.
 
 **If LSL isn't available during rotation 1**, cue with `--no-lsl` and press an eego annotation key
 the moment the screen says RELAX, right after the countdown. Then pair the export with the cue log:
 
 ```bash
-uv run eegmove record --no-lsl --out data/recordings/session1
-uv run eegmove calibrate recording.cnt --schedule data/recordings/session1.json
+uv run eegmove record --mode imagined --no-lsl
+uv run eegmove calibrate recording.cnt --schedule data/recordings/imagined.json
 ```
 
 The first annotation in the export marks time zero, so only press that key once before the GO.
 
-## Right after rotation 1
+## Right after recording
 
 ```bash
-uv run eegmove pretrain --montage-from data/recordings/session1.npz
-uv run eegmove calibrate data/recordings/session1.npz
+uv run eegmove pretrain --classes rest,left,right --imagined --epochs 15 --heldout 90-109 --montage-from data/recordings/imagined.npz
+uv run eegmove calibrate data/recordings/imagined.npz
+uv run eegmove calibrate data/recordings/real.npz
 ```
 
-The first command rebuilds the pretrained model on our real channels, and the second fits the
-decoder to the participant and prints a score for each option on cues it never saw. That score is
-the number to trust. Treat anything near the printed `chance` value as no signal yet.
+Pretraining rebuilds the shared model on our real channels. It takes about 30 to 40 minutes by
+estimate, so run it outside a rotation. Calibrating fits the decoder to the participant and prints
+scores on cues it never saw, including `left_right`. Those need 85% and 70%, and anything near the
+printed `chance` value means no signal yet.
+
+## Live check (needs the headset, about 6 minutes per model)
+
+```bash
+uv run eegmove check artifacts/session-imagined.joblib
+```
+
+This runs 60 seconds of baseline, then 2 minutes of rest, then 20 cues. It decides whether the model
+may type, prints why not if it can't, and counts the attempt. If imagined movement gets a NO-GO, check
+the fallback the same way:
+
+```bash
+uv run eegmove check artifacts/session-real.joblib
+```
+
+Treat repeat attempts with suspicion: a truly 70% decoder passes 17 of 20 about 11% of the time, and a
+truly 85% decoder fails about 35% of the time. Report the attempt count honestly.
 
 ## Live test rotations
 
 ```bash
 uv run eegmove live               # terminal 1
-uv run eegmove listen             # terminal 2, or your app
+uv run eegmove type               # terminal 2
 ```
 
 The first minute is a rest baseline: stay still. Sessions drift when the net is put back on, and
-this realigns the model without any labels. Each visit, record a few more cues if time allows, then
-recalibrate with everything gathered so far.
+this realigns the model without any labels, so start `live` before you present. Recalibrating makes
+a new model, which needs a new check. `type` refuses a decoder running any model or threshold other
+than the approved one, and shows which movement it's using.
+
+If `live` or the typing screen warns about a fading signal, stop and ask ANT to check the impedances.
 
 ## If the stream won't connect
 
@@ -88,4 +120,13 @@ Before claiming brain decoding, check that:
 - the score holds up when the participant keeps their jaw and neck relaxed
 - the model's weight sits over C3 and C4 rather than the edge channels
 
-And if any part of the demo is a replay rather than a live signal, say so.
+For imagined movement, also:
+
+- show a camera view of the still hands, and keep the jaw still with no talking while typing
+- say plainly that a camera can't rule out tiny muscle tension, and ask ANT whether a forearm EMG on the
+  bipolar inputs could
+- never claim it works for patients: this is a healthy volunteer and a prototype
+- if the real-movement fallback is running, say so. The screen does too
+
+And if any part of the demo is a replay or `--simulate` rather than a live signal, say so. The app
+labels both, and neither can earn a GO.

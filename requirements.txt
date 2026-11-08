@@ -1,0 +1,14 @@
+# core
+numpy>=1.24
+scipy>=1.10
+pandas>=1.5
+matplotlib>=3.6
+# eego .cnt files
+mne>=1.9
+antio
+# live decoding from eego over Lab Streaming Layer
+pylsl>=1.16
+# optional: LabRecorder .xdf files
+pyxdf
+# tests
+pytest

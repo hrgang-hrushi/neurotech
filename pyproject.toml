@@ -1,15 +1,18 @@
 [project]
 name = "eegmove"
 version = "0.1.0"
-description = "Real-time movement decoding from ANT Neuro eego EEG over LSL"
+description = "ANT Neuro eego EEG over LSL: real-time movement decoding (eegmove) and movement Morse (eeg_morse)"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
+license = { text = "MIT" }
 dependencies = [
     "antio>=0.5",
     "braindecode>=1.2",
     "joblib>=1.4",
+    "matplotlib>=3.6",
     "mne>=1.9",
     "numpy>=1.26",
+    "pandas>=1.5",
     "pylsl>=1.17",
     "pyriemann>=0.8",
     "scikit-learn>=1.5",
@@ -17,8 +20,13 @@ dependencies = [
     "torch>=2.4",
 ]
 
+[project.optional-dependencies]
+xdf = ["pyxdf"]                  # read LabRecorder .xdf files (eeg_morse)
+all = ["pyxdf", "pytest>=8"]     # pip install -e ".[all]"
+
 [project.scripts]
 eegmove = "eegmove.cli:main"
+eeg-morse = "eeg_morse.__main__:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]
@@ -28,7 +36,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/eegmove"]
+packages = ["src/eegmove", "eeg_morse"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = ["ignore:channels not found"]

@@ -1,0 +1,44 @@
+{
+  "feature": {
+    "channels": [
+      "C3",
+      "CP1",
+      "Cz",
+      "C4",
+      "FC1",
+      "FC2",
+      "CP2"
+    ],
+    "band": [
+      8.0,
+      30.0
+    ],
+    "direction": "decrease",
+    "reference": "car",
+    "line_freq": 60.0,
+    "smooth_s": 0.5,
+    "env_rate": 50.0,
+    "measure": "power",
+    "baseline_s": 10.0,
+    "baseline_pct": 25.0
+  },
+  "detect": {
+    "hysteresis": 0.25,
+    "min_on_s": 0.25,
+    "min_off_s": 0.25,
+    "edge_s": 0.5,
+    "lo": -1.4415123088587134,
+    "hi": -1.344760277233697,
+    "rest_level": -1.6156139828705733
+  },
+  "timing": {
+    "unit_s": null,
+    "default_unit_s": 1.5437,
+    "bias_s": -0.3482,
+    "min_dot_ratio": 0.4,
+    "dash_ratio": 2.0,
+    "letter_gap_ratio": 2.0,
+    "word_gap_ratio": 5.0
+  },
+  "preset": "motor"
+}
