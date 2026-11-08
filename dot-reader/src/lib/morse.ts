@@ -13,6 +13,16 @@ export const REVERSE_MORSE: Record<string, string> = Object.fromEntries(
   Object.entries(MORSE_MAP).map(([code, char]) => [char, code])
 );
 
+/** Text -> Morse: letters separated by spaces, words by ' / '. Characters without a code are skipped. */
+export function encodeMorse(text: string): string {
+  return text
+    .toUpperCase()
+    .split(/\s+/)
+    .map((word) => Array.from(word).map((ch) => REVERSE_MORSE[ch]).filter(Boolean).join(' '))
+    .filter(Boolean)
+    .join(' / ');
+}
+
 export interface MorseSnapshot {
   pendingSymbols: string;
   writtenMorse: string;

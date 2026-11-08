@@ -4,6 +4,7 @@ import React, { useEffect, useRef } from 'react';
 import { AlertTriangle, ArrowRight, AudioLines, CheckCircle2, NotebookPen, XCircle } from 'lucide-react';
 import type { DecodeResult, LetterStatus } from '@/lib/recordingApi';
 import { ScrollFloat } from '@/components/ui/ScrollFloat';
+import { encodeMorse } from '@/lib/morse';
 import { ActivationTrace } from './ActivationTrace';
 
 // Text floats in while the result scrolls into view, and is settled once its top passes mid-screen.
@@ -26,7 +27,8 @@ function SessionNotes({ notes }: { notes: string[] }) {
             Recorded phrases · session notes
           </h3>
           <p className="text-[11px] text-[var(--ds-text-muted)] mt-0.5">
-            What was said during this recording, written down by the team. Not decoded from the EEG.
+            What was said during this recording, written down by the team, with its translation into Morse
+            (what someone would clench to send it). Not decoded from the EEG.
           </p>
         </div>
       </div>
@@ -34,13 +36,19 @@ function SessionNotes({ notes }: { notes: string[] }) {
         {notes.map((note, i) => (
           <li key={`${i}-${note}`} className="flex items-baseline gap-3">
             <span className="font-mono text-xs text-[var(--ds-text-muted)] w-5 shrink-0">{i + 1}.</span>
-            <ScrollFloat
-              {...FLOAT_PROPS}
-              as="p"
-              textClassName="text-xl sm:text-2xl font-semibold font-heading text-[var(--ds-text-primary)]"
-            >
-              {note}
-            </ScrollFloat>
+            <div className="min-w-0">
+              <ScrollFloat
+                {...FLOAT_PROPS}
+                as="p"
+                textClassName="text-xl sm:text-2xl font-semibold font-heading text-[var(--ds-text-primary)]"
+              >
+                {note}
+              </ScrollFloat>
+              <p className="mt-1 font-mono text-xs tracking-wider text-[var(--ds-text-secondary)] break-words">
+                <span className="text-[var(--ds-text-muted)] tracking-normal">In Morse: </span>
+                {encodeMorse(note)}
+              </p>
+            </div>
           </li>
         ))}
       </ol>

@@ -186,3 +186,12 @@ describe("review fixes", () => {
     expect(effectiveModel("clench", [])).toBe("clench");
   });
 });
+
+import { encodeMorse } from "../src/lib/morse";
+
+describe("encodeMorse", () => {
+  it("translates phrases letter by letter, words split by /", () => {
+    expect(encodeMorse("Can you fix this?")).toBe("-.-. .- -. / -.-- --- ..- / ..-. .. -..- / - .... .. ... ..--..");
+    expect(encodeMorse("SOS")).toBe("... --- ...");
+  });
+});
