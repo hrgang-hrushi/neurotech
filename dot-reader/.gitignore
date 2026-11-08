@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# copied from ../docs/pitch.html at dev/build time (served at /deck)
+/public/deck.html
